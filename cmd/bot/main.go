@@ -1,7 +1,17 @@
 package main
 
-import "github.com/MahmudovMZ/faizapp/internal/app"
+import (
+	"log"
+
+	"github.com/MahmudovMZ/faizapp/internal/app"
+	"github.com/MahmudovMZ/faizapp/internal/config"
+)
 
 func main() {
-	app.Run()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	app.Run(*cfg)
 }
