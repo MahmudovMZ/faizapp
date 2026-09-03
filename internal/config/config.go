@@ -52,8 +52,21 @@ func NewDBConfig() (*DBConfig, error) {
 	password := os.Getenv("POSTGRES_PASSWORD")
 	user := os.Getenv("POSTGRES_USER")
 
-	if host == "" || portValue == "" || name == "" || password == "" || user == "" {
-		return &DBConfig{}, fmt.Errorf("PostgreSQL configuration required")
+	required := []struct {
+		name  string
+		value string
+	}{
+		{"POSTGRES_HOST", host},
+		{"POSTGRES_PORT", portValue},
+		{"POSTGRES_DB", name},
+		{"POSTGRES_PASSWORD", password},
+		{"POSTGRES_USER", user},
+	}
+
+	for _, item := range required {
+		if item.value == "" {
+			return nil, fmt.Errorf("%s is required", item.name)
+		}
 	}
 
 	port, err := strconv.Atoi(portValue)
