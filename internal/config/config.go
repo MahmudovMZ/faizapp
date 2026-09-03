@@ -2,8 +2,8 @@ package config
 
 import (
 	"fmt"
-	"log"
 	"os"
+	"strconv"
 
 	"github.com/joho/godotenv"
 )
@@ -13,7 +13,7 @@ type DBConfig struct {
 	Password string `json:"password"`
 	DBName   string `json:"db_name"`
 	Host     string `json:"Host"`
-	Port     string `json:"Port"`
+	Port     int    `json:"Port"`
 }
 
 type BotConfig struct {
@@ -46,16 +46,25 @@ func Load() (*Config, error) {
 }
 
 func NewDBConfig() (*DBConfig, error) {
-	host := os.Getenv("DB_HOST")
-	port := os.Getenv("DB_PORT")
-	name := os.Getenv("DB_NAME")
-	password := os.Getenv("DB_PASS")
-	user := os.Getenv("DB_USER")
+	host := os.Getenv("POSTGRES_HOST")
+	portValue := os.Getenv("POSTGRES_PORT")
+	name := os.Getenv("POSTGRES_DB")
+	password := os.Getenv("POSTGRES_PASSWORD")
+	user := os.Getenv("POSTGRES_USER")
 
-	if host == "" || port == "" || name == "" || password == "" || user == "" {
-		log.Fatal("[CONFIGURING] some of the DB environment variables was not set")
-		return &DBConfig{}, nil
+	if host == "" || portValue == "" || name == "" || password == "" || user == "" {
+		return &DBConfig{}, fmt.Errorf("PostgreSQL configuration required")
 	}
+
+	port, err := strconv.Atoi(portValue)
+	if err != nil {
+		return nil, fmt.Errorf("POSTGRES_PORT must be a valid integer: %w", err)
+	}
+
+	if port < 1 || port > 65535 {
+		return nil, fmt.Errorf("POSTGRES_PORT must be between 1 and 65535")
+	}
+
 	return &DBConfig{
 		Username: user,
 		Password: password,
@@ -81,15 +90,3 @@ func NewBotConfig() (*BotConfig, error) {
 		BotMode: botMode,
 	}, nil
 }
-
-//func ReadConfig(path string) error {
-//	b, err := os.ReadFile(path)
-//	if err != nil {
-//		return err
-//	}
-//	return json.Unmarshal(b, &conf)
-//}
-//
-//func GetConf() *Config {
-//	return &conf
-//}
