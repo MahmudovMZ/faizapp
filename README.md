@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/faizapp-logo.png" alt="FaizApp Logo" width="180">
+  <img src="docs/assets/faizapp-logo-dark.png" alt="FaizApp Logo" width="180">
 </p>
 
 <h1 align="center">FaizApp</h1>
