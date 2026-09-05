@@ -305,11 +305,11 @@ Example:
 TGBOTAPI_TOKEN=
 BOT_MODE=
 
-DB_HOST=
-DB_PORT=
-DB_USER=
-DB_PASS=
-DB_NAME=
+POSTGRES_HOST=
+POSTGRES_PORT=
+POSTGRES_USER=
+POSTGRES_PASSWORD=
+POSTGRES_DB=
 ```
 
 The repository contains an example configuration file, while the real `.env` file must remain local and ignored by Git.
