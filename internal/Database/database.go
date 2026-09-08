@@ -11,8 +11,7 @@ import (
 
 func NewPool(ctx context.Context, cfg config.DBConfig) (*pgxpool.Pool, error) {
 	log.Println("[DATABASE] Initializing database...")
-	dsn := fmt.Sprintf("postgres://%s:%s@%s:%v/%s?sslmode=disable",
-		cfg.Username, cfg.Password, cfg.Host, cfg.Port, cfg.DBName)
+	dsn := BuildDSN(cfg)
 
 	db, err := pgxpool.New(ctx, dsn)
 	if err != nil {
@@ -26,4 +25,9 @@ func NewPool(ctx context.Context, cfg config.DBConfig) (*pgxpool.Pool, error) {
 
 	log.Println("[DATABASE] Connected to database")
 	return db, nil
+}
+
+func BuildDSN(cfg config.DBConfig) string {
+	return fmt.Sprintf("postgres://%s:%s@%s:%v/%s?sslmode=disable",
+		cfg.Username, cfg.Password, cfg.Host, cfg.Port, cfg.DBName)
 }
