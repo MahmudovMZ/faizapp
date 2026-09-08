@@ -9,17 +9,19 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func Run(cfg config.Config, pool *pgxpool.Pool) {
+func Run(cfg config.Config, pool *pgxpool.Pool) error {
 	log.Println("Starting app")
 
 	bot, err := tgbotapi.NewBotAPI(cfg.Bot.Token)
 	if err != nil {
-		log.Fatal("[RUNNING] TGBOTAPI.NewBotAPI: " + err.Error())
+		return err
 	}
-	bot.Debug = true
+	//bot.Debug = true
 
 	switch cfg.Bot.BotMode {
 	case "polling":
 		polling.StartPolling(bot)
 	}
+
+	return nil
 }

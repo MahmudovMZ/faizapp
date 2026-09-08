@@ -5,5 +5,5 @@ CREATE TABLE IF NOT EXISTS users(
     full_name TEXT NOT NULL,
     phone TEXT,
     role TEXT NOT NULL,
-    created_at DATE
+    created_at DATE NOT NULL DEFAULT NOW()
     );
