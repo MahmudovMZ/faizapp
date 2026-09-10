@@ -1,0 +1,9 @@
+UPDATE users
+SET created_at = CURRENT_DATE
+WHERE created_at IS NULL;
+
+ALTER TABLE users
+    ALTER COLUMN created_at SET DEFAULT CURRENT_DATE;
+
+ALTER TABLE users
+    ALTER COLUMN created_at SET NOT NULL;
