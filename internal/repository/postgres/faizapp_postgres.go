@@ -10,7 +10,7 @@ import (
 
 type Repository interface {
 	CreateUser(ctx context.Context, user *models.User) error
-	GetUserByTgID(ctx context.Context, tgId string) (*models.User, error)
+	GetUserByTgID(ctx context.Context, tgId int64) (*models.User, error)
 }
 
 type FaizAppRepo struct {
@@ -34,7 +34,7 @@ func (r *FaizAppRepo) CreateUser(ctx context.Context, user *models.User) error {
 	return nil
 }
 
-func (r *FaizAppRepo) GetUserByTgID(ctx context.Context, tgId string) (*models.User, error) {
+func (r *FaizAppRepo) GetUserByTgID(ctx context.Context, tgId int64) (*models.User, error) {
 	log.Println("[REPOSITORY] getting user by tgId")
 	var user models.User
 	query := `SELECT id,tg_id,full_name,phone,role,created_at FROM users WHERE tg_id = $1`

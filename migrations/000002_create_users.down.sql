@@ -1,0 +1,5 @@
+ALTER TABLE users
+    ALTER COLUMN created_at DROP NOT NULL;
+
+ALTER TABLE users
+    ALTER COLUMN created_at DROP DEFAULT;
