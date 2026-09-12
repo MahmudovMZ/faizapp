@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/MahmudovMZ/faizapp/internal/models"
 	"github.com/MahmudovMZ/faizapp/internal/repository/postgres"
@@ -34,4 +35,28 @@ func (u *UserService) CreateUser(ctx context.Context, user *models.User) error {
 		return err
 	}
 	return nil
+}
+func (u *UserService) ApproveUser(ctx context.Context, tgID int64, role string) error {
+	role = strings.TrimSpace(role)
+	if role == "" {
+		return errors.New("role cannot be empty")
+	}
+	return u.repo.UpdateUserStatus(
+		ctx,
+		tgID,
+		"approved",
+		&role,
+	)
+}
+
+func (u *UserService) RejectUser(
+	ctx context.Context,
+	tgID int64,
+) error {
+	return u.repo.UpdateUserStatus(
+		ctx,
+		tgID,
+		"rejected",
+		nil,
+	)
 }

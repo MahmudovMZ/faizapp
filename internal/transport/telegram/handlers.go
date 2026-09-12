@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,15 +24,27 @@ func BotHandler(
 	bot2 *tgbotapi.BotAPI,
 	update tgbotapi.Update,
 	userService *service.UserService,
+	botAdmin int64,
 ) {
-	if update.Message == nil || update.Message.From == nil {
-		return
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	bot = bot2
+
+	if update.CallbackQuery != nil {
+		if update.CallbackQuery.From == nil {
+			return
+		}
+		if update.CallbackQuery.From.ID != botAdmin {
+			return
+		}
+		handleAdminCallback(ctx, update.CallbackQuery, userService)
+
+		return
+	}
+	if update.Message == nil || update.Message.From == nil {
+		return
+	}
 
 	chatID := update.Message.Chat.ID
 	text := strings.TrimSpace(update.Message.Text)
@@ -143,12 +156,12 @@ func BotHandler(
 				send(chatID, "Не удалось завершить регистрацию. Попробуйте ещё раз.")
 				return
 			}
+			sendAdminRegistration(botAdmin, user)
 			send(chatID, "Ваша заявка на регистрацию принята.")
 			send(chatID, "Ожидайте подтверждения заявки администратором.")
 			delete(userData, chatID)
 			delete(userState, chatID)
 			delete(botState, chatID)
-
 		}
 	}
 }
@@ -221,5 +234,220 @@ func send(chatID int64, message string) {
 
 	if _, err := bot.Send(msg); err != nil {
 		log.Println("[TELEGRAM] failed to send message:", err)
+	}
+}
+
+func sendAdminRegistration(adminID int64, user models.User) {
+	phone := "не указан"
+	if user.Phone != nil {
+		phone = *user.Phone
+	}
+
+	messageText := fmt.Sprintf(
+		"Новая заявка на регистрацию\n\n"+
+			"ФИО: %s\n"+
+			"Телефон: %s\n"+
+			"Telegram ID: %d",
+		user.FullName,
+		phone,
+		user.TgID,
+	)
+
+	approveButton := tgbotapi.NewInlineKeyboardButtonData(
+		"Принять",
+		fmt.Sprintf("approve:%d", user.TgID),
+	)
+
+	rejectButton := tgbotapi.NewInlineKeyboardButtonData(
+		"Отклонить",
+		fmt.Sprintf("reject:%d", user.TgID),
+	)
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			approveButton,
+			rejectButton,
+		),
+	)
+
+	msg := tgbotapi.NewMessage(adminID, messageText)
+	msg.ReplyMarkup = keyboard
+
+	if _, err := bot.Send(msg); err != nil {
+		log.Println("[TELEGRAM] failed to send admin registration:", err)
+	}
+}
+func handleAdminCallback(
+	ctx context.Context,
+	callback *tgbotapi.CallbackQuery,
+	userService *service.UserService,
+) {
+	if callback == nil || callback.Data == "" {
+		return
+	}
+
+	parts := strings.SplitN(callback.Data, ":", 3)
+	if len(parts) < 2 {
+		return
+	}
+
+	action := parts[0]
+
+	tgID, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return
+	}
+
+	callbackText := ""
+
+	switch action {
+	case "approve":
+		if callback.Message == nil {
+			return
+		}
+
+		sendRoleSelectionKeyboard(
+			callback.Message.Chat.ID,
+			tgID,
+		)
+
+		removeInlineKeyboard(callback)
+		callbackText = "Выберите роль пользователя"
+
+	case "role":
+		if len(parts) != 3 {
+			callbackText = "Роль не указана"
+			break
+		}
+
+		role := strings.TrimSpace(parts[2])
+		if role == "" {
+			callbackText = "Роль не может быть пустой"
+			break
+		}
+
+		if err := userService.ApproveUser(
+			ctx,
+			tgID,
+			role,
+		); err != nil {
+			log.Println(
+				"[TELEGRAM] failed to approve user:",
+				err,
+			)
+			callbackText = "Не удалось одобрить заявку"
+			break
+		}
+
+		if callback.Message != nil {
+			removeInlineKeyboard(callback)
+		}
+
+		send(
+			tgID,
+			fmt.Sprintf(
+				"Ваша заявка одобрена.\nНазначенная роль: %s",
+				role,
+			),
+		)
+
+		callbackText = "Заявка одобрена"
+
+	case "reject":
+		if err := userService.RejectUser(ctx, tgID); err != nil {
+			log.Println(
+				"[TELEGRAM] failed to reject user:",
+				err,
+			)
+			callbackText = "Не удалось отклонить заявку"
+			break
+		}
+
+		removeInlineKeyboard(callback)
+
+		send(
+			tgID,
+			"Ваша заявка отклонена администратором.",
+		)
+
+		callbackText = "Заявка отклонена"
+
+	default:
+		callbackText = "Неизвестное действие"
+	}
+
+	callbackAnswer := tgbotapi.NewCallback(
+		callback.ID,
+		callbackText,
+	)
+
+	if _, err := bot.Request(callbackAnswer); err != nil {
+		log.Println(
+			"[TELEGRAM] failed to answer callback:",
+			err,
+		)
+	}
+}
+func sendRoleSelectionKeyboard(adminID int64, tgID int64) {
+	rows := make([][]tgbotapi.InlineKeyboardButton, 0)
+	row := make([]tgbotapi.InlineKeyboardButton, 0)
+
+	for i, item := range models.Role_Menu {
+		button := tgbotapi.NewInlineKeyboardButtonData(
+			item.Title,
+			fmt.Sprintf("role:%d:%s", tgID, item.Title),
+		)
+
+		row = append(row, button)
+
+		if (i+1)%2 == 0 {
+			rows = append(rows, row)
+			row = make([]tgbotapi.InlineKeyboardButton, 0)
+		}
+	}
+
+	if len(row) > 0 {
+		rows = append(rows, row)
+	}
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
+
+	msg := tgbotapi.NewMessage(
+		adminID,
+		"Выберите роль для пользователя:",
+	)
+	msg.ReplyMarkup = keyboard
+
+	if _, err := bot.Send(msg); err != nil {
+		log.Println(
+			"[TELEGRAM] failed to send role keyboard:",
+			err,
+		)
+	}
+}
+
+func removeInlineKeyboard(callback *tgbotapi.CallbackQuery) {
+	if callback == nil || callback.Message == nil {
+		return
+	}
+
+	emptyKeyboard := tgbotapi.InlineKeyboardMarkup{
+		InlineKeyboard: make(
+			[][]tgbotapi.InlineKeyboardButton,
+			0,
+		),
+	}
+
+	edit := tgbotapi.NewEditMessageReplyMarkup(
+		callback.Message.Chat.ID,
+		callback.Message.MessageID,
+		emptyKeyboard,
+	)
+
+	if _, err := bot.Send(edit); err != nil {
+		log.Println(
+			"[TELEGRAM] failed to remove inline keyboard:",
+			err,
+		)
 	}
 }

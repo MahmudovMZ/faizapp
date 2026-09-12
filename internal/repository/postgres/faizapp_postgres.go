@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"log"
 
 	"github.com/MahmudovMZ/faizapp/internal/models"
@@ -11,6 +12,7 @@ import (
 type Repository interface {
 	CreateUser(ctx context.Context, user *models.User) error
 	GetUserByTgID(ctx context.Context, tgId int64) (*models.User, error)
+	UpdateUserStatus(ctx context.Context, tgID int64, status string, role *string) error
 }
 
 type FaizAppRepo struct {
@@ -51,4 +53,32 @@ func (r *FaizAppRepo) GetUserByTgID(ctx context.Context, tgId int64) (*models.Us
 		return nil, err
 	}
 	return &user, nil
+}
+func (r *FaizAppRepo) UpdateUserStatus(ctx context.Context, tgID int64, status string, role *string) error {
+	log.Println("[REPOSITORY] updating user")
+
+	query := `
+      UPDATE users
+SET status = $1,
+    role = $2
+WHERE tg_id = $3
+  AND status = 'pending'
+    `
+
+	result, err := r.Pool.Exec(
+		ctx,
+		query,
+		status,
+		role,
+		tgID,
+	)
+	if err != nil {
+		return err
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("user not found or already processed")
+	}
+
+	return nil
 }
