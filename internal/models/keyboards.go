@@ -15,8 +15,8 @@ type RoleMenu struct {
 }
 
 var Role_Menu = []RoleMenu{
-	{Id: 1, Title: "Sales representatives"},
-	{Id: 2, Title: "Supervisor"},
-	{Id: 3, Title: "Dispatcher"},
-	{Id: 4, Title: "Commercial Director"},
+	{Id: 1, Title: "Торговый Представитель"},
+	{Id: 2, Title: "Супервайзер"},
+	{Id: 3, Title: "Диспетчер"},
+	{Id: 4, Title: "Коммерческий Директор"},
 }
