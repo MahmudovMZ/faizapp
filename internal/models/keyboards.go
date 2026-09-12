@@ -6,7 +6,7 @@ type BotMenu struct {
 }
 
 var Bot_Menu = []BotMenu{
-	{Id: 1, Title: "Registration"},
+	{Id: 1, Title: "Регистрация"},
 }
 
 type RoleMenu struct {

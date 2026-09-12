@@ -25,9 +25,9 @@ func NewFaizAppRepo(pool *pgxpool.Pool) *FaizAppRepo {
 
 func (r *FaizAppRepo) CreateUser(ctx context.Context, user *models.User) error {
 	log.Println("[REPOSITORY] creating user")
-	query := `INSERT INTO users (tg_id, full_name, phone, role) values ($1, $2, $3, $4)`
+	query := `INSERT INTO users (tg_id, full_name, phone) values ($1, $2, $3)`
 
-	_, err := r.Pool.Exec(ctx, query, user.TgID, user.FullName, user.Phone, user.Role)
+	_, err := r.Pool.Exec(ctx, query, user.TgID, user.FullName, user.Phone)
 	if err != nil {
 		return err
 	}
@@ -37,13 +37,14 @@ func (r *FaizAppRepo) CreateUser(ctx context.Context, user *models.User) error {
 func (r *FaizAppRepo) GetUserByTgID(ctx context.Context, tgId int64) (*models.User, error) {
 	log.Println("[REPOSITORY] getting user by tgId")
 	var user models.User
-	query := `SELECT id,tg_id,full_name,phone,role,created_at FROM users WHERE tg_id = $1`
+	query := `SELECT id,tg_id,full_name,phone,role,status,created_at FROM users WHERE tg_id = $1`
 	err := r.Pool.QueryRow(ctx, query, tgId).Scan(
 		&user.ID,
 		&user.TgID,
 		&user.FullName,
 		&user.Phone,
 		&user.Role,
+		&user.Status,
 		&user.CreatedAt,
 	)
 	if err != nil {

@@ -67,25 +67,43 @@ func BotHandler(
 				phone = *user.Phone
 			}
 
-			send(
-				chatID,
-				fmt.Sprintf(
-					"ФИО: %s\nТелефон: %s\nРоль: %s",
-					user.FullName,
-					phone,
-					user.Role,
-				),
-			)
+			switch user.Status {
+			case "pending":
+				send(chatID, "Ваша заявка ожидает подтверждения администратора.")
+			case "approved":
+				if user.Role == nil {
+					send(
+						chatID,
+						fmt.Sprintf(
+							"ФИО: %s\nТелефон: %s\nРоль: Не назначено",
+							user.FullName,
+							phone,
+						),
+					)
+					return
+				} else {
+					send(
+						chatID,
+						fmt.Sprintf(
+							"ФИО: %s\nТелефон: %s\nРоль: %s",
+							user.FullName,
+							phone,
+							*user.Role))
+					return
+				}
 
-			return
+			case "rejected":
+				send(chatID, "Ваша заявка отклонена.")
+				return
+			}
+
 		}
 
 		if text == "Регистрация" {
 			userData[chatID] = make(map[string]string)
 			botState[chatID] = models.STATE_STARTING_REGISTRATION
 			userState[chatID] = models.STATE_WAITING_NAME
-
-			removeKeyboard(chatID)
+			removeKeyboard(chatID, "Начата процедура регистрации.")
 			send(chatID, "Введите ваше полное имя.")
 		}
 
@@ -112,25 +130,12 @@ func BotHandler(
 
 			userData[chatID]["Phone"] =
 				strings.TrimSpace(update.Message.Contact.PhoneNumber)
-
-			send(chatID, "Номер телефона сохранён.")
-			sendRoleKeyboard(chatID)
-
-			userState[chatID] = models.STATE_WAITING_ROLE
-
-		case models.STATE_WAITING_ROLE:
-			if !isValidRole(text) {
-				send(chatID, "Пожалуйста, выберите роль с помощью кнопок.")
-				return
-			}
-
-			userData[chatID]["Role"] = text
+			removeKeyboard(chatID, "Номер телефона сохранён.")
 
 			user := models.User{
 				TgID:     tgID,
 				FullName: userData[chatID]["Name"],
 				Phone:    stringPointer(userData[chatID]["Phone"]),
-				Role:     userData[chatID]["Role"],
 			}
 
 			if err := userService.CreateUser(ctx, &user); err != nil {
@@ -138,13 +143,12 @@ func BotHandler(
 				send(chatID, "Не удалось завершить регистрацию. Попробуйте ещё раз.")
 				return
 			}
-
-			removeKeyboard(chatID)
-			send(chatID, "Регистрация успешно завершена.")
-
+			send(chatID, "Ваша заявка на регистрацию принята.")
+			send(chatID, "Ожидайте подтверждения заявки администратором.")
 			delete(userData, chatID)
 			delete(userState, chatID)
 			delete(botState, chatID)
+
 		}
 	}
 }
@@ -204,53 +208,14 @@ func sendMenuKeyboard(chatID int64) {
 	}
 }
 
-func sendRoleKeyboard(chatID int64) {
-	rows := make([][]tgbotapi.KeyboardButton, 0)
-	row := make([]tgbotapi.KeyboardButton, 0)
-
-	for i, item := range models.Role_Menu {
-		row = append(row, tgbotapi.NewKeyboardButton(item.Title))
-
-		if (i+1)%2 == 0 {
-			rows = append(rows, row)
-			row = make([]tgbotapi.KeyboardButton, 0)
-		}
-	}
-
-	if len(row) > 0 {
-		rows = append(rows, row)
-	}
-
-	keyboard := tgbotapi.NewReplyKeyboard(rows...)
-	msg := tgbotapi.NewMessage(chatID, "Выберите вашу роль.")
-	msg.ReplyMarkup = keyboard
-
-	if _, err := bot.Send(msg); err != nil {
-		log.Println("[TELEGRAM] failed to send role keyboard:", err)
-	}
-}
-
-func isValidRole(role string) bool {
-	role = strings.TrimSpace(role)
-
-	for _, item := range models.Role_Menu {
-		if item.Title == role {
-			return true
-		}
-	}
-
-	return false
-}
-
-func removeKeyboard(chatID int64) {
-	msg := tgbotapi.NewMessage(chatID, "Клавиатура убрана.")
+func removeKeyboard(chatID int64, message string) {
+	msg := tgbotapi.NewMessage(chatID, message)
 	msg.ReplyMarkup = tgbotapi.NewRemoveKeyboard(true)
 
 	if _, err := bot.Send(msg); err != nil {
 		log.Println("[TELEGRAM] failed to remove keyboard:", err)
 	}
 }
-
 func send(chatID int64, message string) {
 	msg := tgbotapi.NewMessage(chatID, message)
 

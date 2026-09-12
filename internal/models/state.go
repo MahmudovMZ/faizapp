@@ -6,5 +6,4 @@ const (
 const (
 	STATE_WAITING_NAME  = "waiting_full_name"
 	STATE_WAITING_PHONE = "waiting_phone"
-	STATE_WAITING_ROLE  = "waiting_role"
 )
