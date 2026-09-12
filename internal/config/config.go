@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -17,8 +18,9 @@ type DBConfig struct {
 }
 
 type BotConfig struct {
-	Token   string `json:"token"`
-	BotMode string `json:"botMode"`
+	Token     string `json:"token"`
+	BotMode   string `json:"botMode"`
+	AdminTGID int64  `json:"adminTGID"`
 }
 
 type Config struct {
@@ -39,6 +41,7 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &Config{
 		Bot: *tgBot,
 		DB:  *db,
@@ -90,16 +93,25 @@ func NewDBConfig() (*DBConfig, error) {
 func NewBotConfig() (*BotConfig, error) {
 	tgToken := os.Getenv("TGBOTAPI_TOKEN")
 	botMode := os.Getenv("BOT_MODE")
+	tgAdminValue := os.Getenv("ADMIN_TELEGRAM_ID")
+	if tgToken == "" || botMode == "" || tgAdminValue == "" {
+		return nil, fmt.Errorf("TGBOTAPI_TOKEN, BOT_MODE and ADMIN_TELEGRAM_ID are required")
+	}
+	tgAdmin, err := strconv.ParseInt(tgAdminValue, 10, 64)
+	if err != nil {
+		return nil, errors.New("ADMIN_TELEGRAM_ID must be a valid integer")
+	}
 
-	if tgToken == "" || botMode == "" {
-		return &BotConfig{}, fmt.Errorf("TGBOTAPI_TOKEN and BOT_MODE are required")
+	if tgAdmin <= 0 {
+		return nil, errors.New("TGBOTAPI_TOKEN must be a positive integer")
 	}
 
 	if botMode != "polling" {
-		return &BotConfig{}, fmt.Errorf("BOT_MODE must be 'polling'")
+		return nil, fmt.Errorf("BOT_MODE must be 'polling'")
 	}
 	return &BotConfig{
-		Token:   tgToken,
-		BotMode: botMode,
+		Token:     tgToken,
+		BotMode:   botMode,
+		AdminTGID: tgAdmin,
 	}, nil
 }

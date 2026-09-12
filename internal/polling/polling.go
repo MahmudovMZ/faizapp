@@ -8,7 +8,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-func StartPolling(bot *tgbotapi.BotAPI, userService *service.UserService) {
+func StartPolling(bot *tgbotapi.BotAPI, userService *service.UserService, botAdmin int64) {
 
 	log.Println("Бот запущен!")
 
@@ -18,7 +18,7 @@ func StartPolling(bot *tgbotapi.BotAPI, userService *service.UserService) {
 	updates := bot.GetUpdatesChan(updateConfig)
 
 	for update := range updates {
-		telegram.BotHandler(bot, update, userService)
+		telegram.BotHandler(bot, update, userService, botAdmin)
 	}
 
 }
