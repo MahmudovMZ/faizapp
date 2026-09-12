@@ -282,12 +282,38 @@ func handleAdminCallback(
 	callback *tgbotapi.CallbackQuery,
 	userService *service.UserService,
 ) {
-	if callback == nil || callback.Data == "" {
+	if callback == nil {
+		return
+	}
+
+	callbackText := "Некорректный запрос"
+
+	if callback.Data == "" {
+		answer := tgbotapi.NewCallback(
+			callback.ID,
+			callbackText,
+		)
+
+		if _, err := bot.Request(answer); err != nil {
+			log.Println("[TELEGRAM] failed to answer callback:", err)
+		}
+
 		return
 	}
 
 	parts := strings.SplitN(callback.Data, ":", 3)
 	if len(parts) < 2 {
+		callbackText = "Некорректные данные запроса"
+
+		answer := tgbotapi.NewCallback(
+			callback.ID,
+			callbackText,
+		)
+
+		if _, err := bot.Request(answer); err != nil {
+			log.Println("[TELEGRAM] failed to answer callback:", err)
+		}
+
 		return
 	}
 
@@ -295,15 +321,25 @@ func handleAdminCallback(
 
 	tgID, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
+		callbackText = "Некорректный Telegram ID"
+
+		answer := tgbotapi.NewCallback(
+			callback.ID,
+			callbackText,
+		)
+
+		if _, err := bot.Request(answer); err != nil {
+			log.Println("[TELEGRAM] failed to answer callback:", err)
+		}
+
 		return
 	}
-
-	callbackText := ""
 
 	switch action {
 	case "approve":
 		if callback.Message == nil {
-			return
+			callbackText = "Сообщение заявки недоступно"
+			break
 		}
 
 		sendRoleSelectionKeyboard(
@@ -339,9 +375,7 @@ func handleAdminCallback(
 			break
 		}
 
-		if callback.Message != nil {
-			removeInlineKeyboard(callback)
-		}
+		removeInlineKeyboard(callback)
 
 		send(
 			tgID,
@@ -450,4 +484,40 @@ func removeInlineKeyboard(callback *tgbotapi.CallbackQuery) {
 			err,
 		)
 	}
+}
+
+func parseCallbackData(data string) (
+	action string,
+	tgID int64,
+	role string,
+	err error,
+) {
+	parts := strings.SplitN(data, ":", 3)
+
+	if len(parts) < 2 {
+		return "", 0, "", fmt.Errorf("invalid callback data")
+	}
+
+	action = parts[0]
+
+	tgID, err = strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return "", 0, "", fmt.Errorf("invalid telegram id: %w", err)
+	}
+
+	if action == "role" {
+		if len(parts) != 3 || strings.TrimSpace(parts[2]) == "" {
+			return "", 0, "", fmt.Errorf("role is required")
+		}
+
+		role = strings.TrimSpace(parts[2])
+	}
+
+	if action != "approve" &&
+		action != "reject" &&
+		action != "role" {
+		return "", 0, "", fmt.Errorf("unknown action: %s", action)
+	}
+
+	return action, tgID, role, nil
 }
