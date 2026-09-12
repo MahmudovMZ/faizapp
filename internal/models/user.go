@@ -7,6 +7,7 @@ type User struct {
 	TgID      int64
 	FullName  string
 	Phone     *string
-	Role      string
+	Role      *string
+	Status    string
 	CreatedAt time.Time
 }

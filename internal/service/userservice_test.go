@@ -17,6 +17,10 @@ type mockUserRepository struct {
 	createCalled bool
 }
 
+func stringPtr(value string) *string {
+	return &value
+}
+
 func (m *mockUserRepository) GetUserByTgID(
 	ctx context.Context,
 	tgID int64,
@@ -38,7 +42,7 @@ func TestUserService_GetUserByTgID_UserFound(t *testing.T) {
 		ID:       "user-id",
 		TgID:     12345,
 		FullName: "Test User",
-		Role:     "dispatcher",
+		Role:     stringPtr("dispatcher"),
 	}
 
 	repo := &mockUserRepository{
@@ -109,7 +113,7 @@ func TestUserService_CreateUser_Success(t *testing.T) {
 	user := &models.User{
 		TgID:     12345,
 		FullName: "Test User",
-		Role:     "dispatcher",
+		Role:     stringPtr("dispatcher"),
 	}
 
 	err := service.CreateUser(context.Background(), user)
@@ -134,7 +138,7 @@ func TestUserService_CreateUser_Error(t *testing.T) {
 	user := &models.User{
 		TgID:     12345,
 		FullName: "Test User",
-		Role:     "dispatcher",
+		Role:     stringPtr("dispatcher"),
 	}
 
 	err := service.CreateUser(context.Background(), user)
