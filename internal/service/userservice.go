@@ -60,3 +60,48 @@ func (u *UserService) RejectUser(
 		nil,
 	)
 }
+
+func (u *UserService) GetUserByID(ctx context.Context, userID string) (*models.User, error) {
+	user, err := u.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("user not found: %w", err)
+		}
+		return nil, err
+	}
+	return user, nil
+}
+
+func (u *UserService) AssignSRCode(ctx context.Context, userID string, srCodeID int) error {
+	user, err := u.GetUserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if user == nil {
+		return errors.New("user not found")
+	}
+	if user.Status != "approved" {
+		return errors.New("user is not approved")
+	}
+	if user.Role == nil || *user.Role != "Торговый представитель" {
+		return errors.New("user is not a sales representative")
+	}
+	return u.repo.AssignSRCode(ctx, userID, srCodeID)
+}
+
+func (u *UserService) AssignSRCodeAndApprove(ctx context.Context, userID string, srCodeID int, tgID int64) error {
+	role := "Торговый Представитель"
+	status := "approved"
+	user, err := u.GetUserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if user == nil {
+		return errors.New("user not found")
+	}
+	err = u.repo.AssignSRCodeAndUpdate(ctx, tgID, status, &role, userID, srCodeID)
+	if err != nil {
+		return err
+	}
+	return nil
+}

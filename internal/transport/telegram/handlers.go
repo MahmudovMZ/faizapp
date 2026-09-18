@@ -286,66 +286,46 @@ func handleAdminCallback(
 		return
 	}
 
-	callbackText := "Некорректный запрос"
-
-	if callback.Data == "" {
-		answer := tgbotapi.NewCallback(
-			callback.ID,
-			callbackText,
-		)
-
-		if _, err := bot.Request(answer); err != nil {
+	answer := func(text string) {
+		if _, err := bot.Request(tgbotapi.NewCallback(callback.ID, text)); err != nil {
 			log.Println("[TELEGRAM] failed to answer callback:", err)
 		}
+	}
 
+	if callback.Data == "" {
+		answer("Некорректный запрос")
 		return
 	}
 
 	parts := strings.SplitN(callback.Data, ":", 3)
 	if len(parts) < 2 {
-		callbackText = "Некорректные данные запроса"
-
-		answer := tgbotapi.NewCallback(
-			callback.ID,
-			callbackText,
-		)
-
-		if _, err := bot.Request(answer); err != nil {
-			log.Println("[TELEGRAM] failed to answer callback:", err)
-		}
-
+		answer("Некорректные данные запроса")
 		return
 	}
-
-	action := parts[0]
 
 	tgID, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
-		callbackText = "Некорректный Telegram ID"
-
-		answer := tgbotapi.NewCallback(
-			callback.ID,
-			callbackText,
-		)
-
-		if _, err := bot.Request(answer); err != nil {
-			log.Println("[TELEGRAM] failed to answer callback:", err)
-		}
-
+		answer("Некорректный Telegram ID")
 		return
 	}
 
-	switch action {
+	callbackText := "Неизвестное действие"
+
+	switch parts[0] {
 	case "approve":
 		if callback.Message == nil {
 			callbackText = "Сообщение заявки недоступно"
 			break
 		}
 
-		sendRoleSelectionKeyboard(
+		if err := sendRoleSelectionKeyboard(
 			callback.Message.Chat.ID,
 			tgID,
-		)
+		); err != nil {
+			log.Println("[TELEGRAM] failed to show role keyboard:", err)
+			callbackText = "Не удалось показать роли"
+			break
+		}
 
 		removeInlineKeyboard(callback)
 		callbackText = "Выберите роль пользователя"
@@ -355,83 +335,175 @@ func handleAdminCallback(
 			callbackText = "Роль не указана"
 			break
 		}
-
-		role := strings.TrimSpace(parts[2])
-		if role == "" {
-			callbackText = "Роль не может быть пустой"
+		if callback.Message == nil {
+			callbackText = "Сообщение заявки недоступно"
 			break
 		}
 
-		if err := userService.ApproveUser(
+		roleID, err := strconv.Atoi(parts[2])
+		if err != nil {
+			callbackText = "Некорректный ID роли"
+			break
+		}
+
+		role, ok := roleTitleByID(roleID)
+		if !ok {
+			callbackText = "Неизвестная роль"
+			break
+		}
+
+		if role != "Торговый Представитель" {
+			callbackText = "Сценарий для этой роли ещё не настроен"
+			break
+		}
+
+		if err := sendWorkGroupKeyboard(
 			ctx,
+			callback.Message.Chat.ID,
 			tgID,
-			role,
+			userService,
 		); err != nil {
-			log.Println(
-				"[TELEGRAM] failed to approve user:",
-				err,
-			)
-			callbackText = "Не удалось одобрить заявку"
+			log.Println("[TELEGRAM] failed to show work groups:", err)
+			callbackText = "Не удалось показать рабочие группы"
 			break
 		}
 
 		removeInlineKeyboard(callback)
+		callbackText = "Выберите рабочую группу"
 
+	case "group":
+		if len(parts) != 3 {
+			callbackText = "Рабочая группа не указана"
+			break
+		}
+		if callback.Message == nil {
+			callbackText = "Сообщение с выбором группы недоступно"
+			break
+		}
+
+		workGroupID, err := strconv.Atoi(parts[2])
+		if err != nil {
+			callbackText = "Некорректный ID рабочей группы"
+			break
+		}
+
+		if err := sendTerritoryKeyboard(
+			ctx,
+			callback.Message.Chat.ID,
+			tgID,
+			userService,
+			workGroupID,
+		); err != nil {
+			log.Println("[TELEGRAM] failed to show territories:", err)
+			callbackText = "Не удалось показать территории"
+			break
+		}
+
+		removeInlineKeyboard(callback)
+		callbackText = "Выберите территорию"
+
+	case "territory":
+		if len(parts) != 3 {
+			callbackText = "Территория не указана"
+			break
+		}
+		if callback.Message == nil {
+			callbackText = "Сообщение с выбором кода ТП недоступна."
+			break
+		}
+		territoryID, err := strconv.Atoi(parts[2])
+		if err != nil {
+			callbackText = "Некорректный ID территории."
+			break
+		}
+
+		if err := sendSRCodeKeyboard(
+			ctx,
+			callback.Message.Chat.ID,
+			tgID,
+			userService,
+			territoryID,
+		); err != nil {
+			log.Println("[TELEGRAM] failed to show sr-code keyboard:", err)
+			callbackText = "Не удалось показать кода ТП"
+			break
+		}
+
+		removeInlineKeyboard(callback)
+		callbackText = "Выберите код ТП"
+
+	case "code":
+		if len(parts) != 3 {
+			callbackText = "Код ТП не указан"
+			break
+		}
+		srCodeID, err := strconv.Atoi(parts[2])
+		if err != nil {
+			callbackText = "Некорректный ID кода ТП"
+			break
+		}
+		user, err := userService.GetUserByTgID(ctx, tgID)
+		if err != nil {
+			log.Println("[TELEGRAM] failed to get user:", err)
+			callbackText = "Не удалось найти Пользователя"
+			break
+		}
+		if user == nil {
+			callbackText = "Пользователь не найден"
+			break
+		}
+		if err := userService.AssignSRCodeAndApprove(
+			ctx,
+			user.ID,
+			srCodeID,
+			tgID,
+		); err != nil {
+			log.Println("[TELEGRAM] failed to assign sr-code:", err)
+			callbackText = "Не удалось назначить код ТП"
+			break
+		}
+
+		removeInlineKeyboard(callback)
 		send(
 			tgID,
-			fmt.Sprintf(
-				"Ваша заявка одобрена.\nНазначенная роль: %s",
-				role,
-			),
+			"Ваша заявка одобрена.\nКод ТП успешно назначен.",
 		)
-
-		callbackText = "Заявка одобрена"
+		callbackText = "Пользователь успешно сохранен"
 
 	case "reject":
 		if err := userService.RejectUser(ctx, tgID); err != nil {
-			log.Println(
-				"[TELEGRAM] failed to reject user:",
-				err,
-			)
+			log.Println("[TELEGRAM] failed to reject user:", err)
 			callbackText = "Не удалось отклонить заявку"
 			break
 		}
 
 		removeInlineKeyboard(callback)
-
-		send(
-			tgID,
-			"Ваша заявка отклонена администратором.",
-		)
-
+		send(tgID, "Ваша заявка отклонена администратором.")
 		callbackText = "Заявка отклонена"
-
-	default:
-		callbackText = "Неизвестное действие"
 	}
 
-	callbackAnswer := tgbotapi.NewCallback(
-		callback.ID,
-		callbackText,
-	)
-
-	if _, err := bot.Request(callbackAnswer); err != nil {
-		log.Println(
-			"[TELEGRAM] failed to answer callback:",
-			err,
-		)
-	}
+	answer(callbackText)
 }
-func sendRoleSelectionKeyboard(adminID int64, tgID int64) {
+
+func roleTitleByID(roleID int) (string, bool) {
+	for _, role := range models.Role_Menu {
+		if role.Id == roleID {
+			return role.Title, true
+		}
+	}
+
+	return "", false
+}
+
+func sendRoleSelectionKeyboard(adminID, tgID int64) error {
 	rows := make([][]tgbotapi.InlineKeyboardButton, 0)
 	row := make([]tgbotapi.InlineKeyboardButton, 0)
 
 	for i, item := range models.Role_Menu {
 		button := tgbotapi.NewInlineKeyboardButtonData(
 			item.Title,
-			fmt.Sprintf("role:%d:%s", tgID, item.Title),
+			fmt.Sprintf("role:%d:%d", tgID, item.Id),
 		)
-
 		row = append(row, button)
 
 		if (i+1)%2 == 0 {
@@ -444,20 +516,148 @@ func sendRoleSelectionKeyboard(adminID int64, tgID int64) {
 		rows = append(rows, row)
 	}
 
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(rows...)
+	msg := tgbotapi.NewMessage(adminID, "Выберите роль для пользователя:")
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+
+	_, err := bot.Send(msg)
+	return err
+}
+
+func sendWorkGroupKeyboard(
+	ctx context.Context,
+	adminID int64,
+	tgID int64,
+	userService *service.UserService,
+) error {
+	workGroups, err := userService.GetWorkGroups(ctx)
+	if err != nil {
+		send(adminID, "Не удалось загрузить рабочие группы.")
+		return err
+	}
+	if len(workGroups) == 0 {
+		send(adminID, "Рабочие группы не найдены.")
+		return fmt.Errorf("no work groups found")
+	}
+
+	rows := make([][]tgbotapi.InlineKeyboardButton, 0)
+	row := make([]tgbotapi.InlineKeyboardButton, 0)
+
+	for i, item := range workGroups {
+		button := tgbotapi.NewInlineKeyboardButtonData(
+			item.Name,
+			fmt.Sprintf("group:%d:%d", tgID, item.ID),
+		)
+		row = append(row, button)
+
+		if (i+1)%2 == 0 {
+			rows = append(rows, row)
+			row = make([]tgbotapi.InlineKeyboardButton, 0)
+		}
+	}
+
+	if len(row) > 0 {
+		rows = append(rows, row)
+	}
 
 	msg := tgbotapi.NewMessage(
 		adminID,
-		"Выберите роль для пользователя:",
+		"Выберите рабочую группу для торгового представителя:",
 	)
-	msg.ReplyMarkup = keyboard
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
 
-	if _, err := bot.Send(msg); err != nil {
-		log.Println(
-			"[TELEGRAM] failed to send role keyboard:",
-			err,
-		)
+	_, err = bot.Send(msg)
+	return err
+}
+
+func sendTerritoryKeyboard(
+	ctx context.Context,
+	adminID int64,
+	tgID int64,
+	userService *service.UserService,
+	workGroupID int,
+) error {
+	territories, err := userService.GetTerritoriesByGroup(ctx, workGroupID)
+	if err != nil {
+		send(adminID, "Не удалось загрузить территории.")
+		return err
 	}
+	if len(territories) == 0 {
+		send(adminID, "В этой рабочей группе территории не найдены.")
+		return fmt.Errorf("no territories found for work group %d", workGroupID)
+	}
+
+	rows := make([][]tgbotapi.InlineKeyboardButton, 0)
+	row := make([]tgbotapi.InlineKeyboardButton, 0)
+
+	for i, item := range territories {
+		button := tgbotapi.NewInlineKeyboardButtonData(
+			item.Name,
+			fmt.Sprintf("territory:%d:%d", tgID, item.ID),
+		)
+		row = append(row, button)
+
+		if (i+1)%2 == 0 {
+			rows = append(rows, row)
+			row = make([]tgbotapi.InlineKeyboardButton, 0)
+		}
+	}
+
+	if len(row) > 0 {
+		rows = append(rows, row)
+	}
+
+	msg := tgbotapi.NewMessage(
+		adminID,
+		"Выберите территорию для торгового представителя:",
+	)
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+
+	_, err = bot.Send(msg)
+	return err
+}
+
+func sendSRCodeKeyboard(ctx context.Context,
+	adminID int64,
+	tgID int64,
+	userService *service.UserService,
+	territoryID int) error {
+	srCode, err := userService.GetAvailableSRCodes(ctx, territoryID)
+	if err != nil {
+		send(adminID, "Не удалось загрузить коды ТП.")
+		return err
+	}
+	if len(srCode) == 0 {
+		send(adminID, "На этой территории свободных кодов для ТП нет.")
+		return fmt.Errorf("no available SR codes found for territory %d", territoryID)
+	}
+	rows := make([][]tgbotapi.InlineKeyboardButton, 0)
+	row := make([]tgbotapi.InlineKeyboardButton, 0)
+
+	for i, item := range srCode {
+		button := tgbotapi.NewInlineKeyboardButtonData(
+			item.Code,
+			fmt.Sprintf("code:%d:%d", tgID, item.ID),
+		)
+		row = append(row, button)
+
+		if (i+1)%2 == 0 {
+			rows = append(rows, row)
+			row = make([]tgbotapi.InlineKeyboardButton, 0)
+		}
+	}
+
+	if len(row) > 0 {
+		rows = append(rows, row)
+	}
+
+	msg := tgbotapi.NewMessage(
+		adminID,
+		"Выберите код ТП для торгового представителя:",
+	)
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+
+	_, err = bot.Send(msg)
+	return err
 }
 
 func removeInlineKeyboard(callback *tgbotapi.CallbackQuery) {
@@ -515,7 +715,10 @@ func parseCallbackData(data string) (
 
 	if action != "approve" &&
 		action != "reject" &&
-		action != "role" {
+		action != "role" &&
+		action != "group" &&
+		action != "territory" &&
+		action != "code" {
 		return "", 0, "", fmt.Errorf("unknown action: %s", action)
 	}
 

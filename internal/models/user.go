@@ -11,3 +11,9 @@ type User struct {
 	Status    string
 	CreatedAt time.Time
 }
+type SRAssignment struct {
+	ID         int
+	UserID     string
+	SRCodeID   int
+	AssignedAt time.Time
+}
