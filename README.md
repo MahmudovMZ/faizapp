@@ -246,18 +246,22 @@ faizapp/
 │   ├── config/
 │   │   └── config.go
 │   │
-│   ├── domain/
+│   ├── models/
 │   │   ├── user.go
 │   │   ├── plan.go
 │   │   ├── merch.go
 │   │   ├── photo.go
-│   │   └── comment.go
+│   │   ├── comment.go
+│   │   └── SRTerrytoriesInfo.go
 │   │
 │   ├── service/
-│   │   └── bot_service.go
+│   │   ├── userservice.go
+│   │   └── reference_service.go
 │   │
 │   ├── repository/
 │   │   └── postgres/
+│   │       ├── faizapp_postgres.go
+│   │       └── reference_data.go
 │   │
 │   ├── transport/
 │   │   └── telegram/
@@ -284,7 +288,7 @@ faizapp/
 | `cmd` | Application entry point. |
 | `app` | Application composition and startup. |
 | `config` | Environment loading, configuration construction, and validation. |
-| `domain` | Core business entities and domain models. |
+| `models` | Application data models and Telegram menu definitions. |
 | `service` | Application and business logic. |
 | `repository` | Persistence and PostgreSQL access. |
 | `transport/telegram` | Telegram-specific handlers and transport logic. |
@@ -374,7 +378,7 @@ The system is developed in small, verifiable stages. New infrastructure should n
 - Basic handler structure.
 - Initial project architecture.
 
-### Stage 2 — Application Foundation
+### Stage 2 — Application Foundation and Access Workflows
 
 #### Stage 2.1 — Configuration — Completed
 
@@ -385,24 +389,46 @@ The system is developed in small, verifiable stages. New infrastructure should n
 - Centralized configuration loading.
 - Passing the resulting configuration into the application layer.
 
-#### Stage 2.2 — PostgreSQL Foundation — Next
+#### Stage 2.2 — PostgreSQL Foundation — Completed
 
 - PostgreSQL connection.
 - Connection pool.
 - Database connectivity validation.
 - Migration infrastructure.
-- Initial database schema.
+- Initial database schema and versioned migrations.
 
-#### Stage 2.3 — User Registration
+#### Stage 2.3 — User Registration and Approval — Completed
 
 - Telegram identity handling.
 - Contact-based registration.
 - Employee records.
-- Role assignment.
-- User persistence.
-- Basic authorization.
+- Pending user persistence.
+- Administrator approval/rejection through Telegram inline buttons.
+- Role selection for approved users.
+- Administrator-only callback handling.
 
-#### Stage 2.4 — Core Domain
+#### Stage 2.4 — Territory and SR Assignment — Completed
+
+- Work groups and territories.
+- Brand categories and SR codes.
+- Available-code lookup by territory.
+- Sales representative workflow:
+
+  ```text
+  Role → Work group → Territory → SR code → Approve
+  ```
+
+- Supervisor workflow:
+
+  ```text
+  Role → Work group → Territory → Assign territory → Approve
+  ```
+
+- Transactional assignment of SR codes and supervisor territories.
+- Protection against assigning an occupied SR code or territory.
+- Service-layer tests and manual end-to-end testing of both workflows.
+
+#### Stage 2.5 — Core Domain
 
 Planned entities include:
 
@@ -413,7 +439,7 @@ Planned entities include:
 - Comments.
 - Verification results.
 
-#### Stage 2.5 — Photo Reporting
+#### Stage 2.6 — Photo Reporting
 
 - Telegram photo reception.
 - Photo persistence.
@@ -422,7 +448,7 @@ Planned entities include:
 - Sender association.
 - Report/work association.
 
-#### Stage 2.6 — Dispatcher Verification
+#### Stage 2.7 — Dispatcher Verification
 
 - Accept.
 - Accept with comment.
@@ -464,21 +490,34 @@ These capabilities are intentionally outside the initial implementation scope.
 
 ## Current Development Status
 
-The project has completed the initial configuration foundation.
+The project has completed the application foundation and the first administrative access workflows.
 
-The application currently has:
+Implemented:
 
-- Go application entry point.
-- Application startup layer.
-- Telegram bot initialization.
-- Polling update processing.
-- Environment-based configuration.
-- Separate Telegram and database configuration models.
-- Configuration validation.
-- Centralized configuration loading.
-- Configuration passed from the entry point into the application layer.
+- Telegram polling bot and application startup.
+- Environment-based configuration with validation.
+- PostgreSQL connection pool and versioned migrations.
+- User registration through Telegram contact sharing.
+- Pending, approved, and rejected user states.
+- Administrator-only approval callbacks.
+- Role selection through inline keyboards.
+- Work-group and territory lookup from PostgreSQL.
+- Sales representative SR-code assignment.
+- Supervisor territory assignment.
+- Transactional persistence for approval and assignment operations.
+- Service-layer tests and manual end-to-end testing of both assignment workflows.
+- Protected `main` branch with Pull Request and CI requirements; changes are intended to flow through `develop`.
 
-**Next major implementation target: PostgreSQL foundation.**
+The next major implementation target is the photo-reporting foundation: receiving Telegram photos, storing metadata, calculating file hashes, and preventing duplicate submissions.
+
+Not implemented yet:
+
+- Photo/report database tables and photo ingestion.
+- Duplicate detection in the production workflow.
+- Dispatcher verification of submitted photos.
+- Comments, rejection reasons, and report counters.
+- Plans, scheduled reminders, daily summaries, and monthly analytics.
+- Supervisor-specific management screens and reporting.
 
 ---
 
