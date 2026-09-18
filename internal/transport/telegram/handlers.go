@@ -277,6 +277,7 @@ func sendAdminRegistration(adminID int64, user models.User) {
 		log.Println("[TELEGRAM] failed to send admin registration:", err)
 	}
 }
+
 func handleAdminCallback(
 	ctx context.Context,
 	callback *tgbotapi.CallbackQuery,
@@ -297,7 +298,7 @@ func handleAdminCallback(
 		return
 	}
 
-	parts := strings.SplitN(callback.Data, ":", 3)
+	parts := strings.SplitN(callback.Data, ":", 4)
 	if len(parts) < 2 {
 		answer("Некорректные данные запроса")
 		return
@@ -309,8 +310,9 @@ func handleAdminCallback(
 		return
 	}
 
-	callbackText := "Неизвестное действие"
+	scenario := ""
 
+	callbackText := "Неизвестное действие"
 	switch parts[0] {
 	case "approve":
 		if callback.Message == nil {
@@ -352,16 +354,22 @@ func handleAdminCallback(
 			break
 		}
 
-		if role != "Торговый Представитель" {
+		if role != "Торговый Представитель" && role != "Супервайзер" {
 			callbackText = "Сценарий для этой роли ещё не настроен"
 			break
 		}
-
+		if role == "Торговый Представитель" {
+			scenario = "sr"
+		}
+		if role == "Супервайзер" {
+			scenario = "sv"
+		}
 		if err := sendWorkGroupKeyboard(
 			ctx,
 			callback.Message.Chat.ID,
 			tgID,
 			userService,
+			scenario,
 		); err != nil {
 			log.Println("[TELEGRAM] failed to show work groups:", err)
 			callbackText = "Не удалось показать рабочие группы"
@@ -372,10 +380,11 @@ func handleAdminCallback(
 		callbackText = "Выберите рабочую группу"
 
 	case "group":
-		if len(parts) != 3 {
+		if len(parts) != 4 {
 			callbackText = "Рабочая группа не указана"
 			break
 		}
+		scenario = parts[3]
 		if callback.Message == nil {
 			callbackText = "Сообщение с выбором группы недоступно"
 			break
@@ -393,6 +402,7 @@ func handleAdminCallback(
 			tgID,
 			userService,
 			workGroupID,
+			scenario,
 		); err != nil {
 			log.Println("[TELEGRAM] failed to show territories:", err)
 			callbackText = "Не удалось показать территории"
@@ -403,10 +413,11 @@ func handleAdminCallback(
 		callbackText = "Выберите территорию"
 
 	case "territory":
-		if len(parts) != 3 {
+		if len(parts) != 4 {
 			callbackText = "Территория не указана"
 			break
 		}
+		scenario = parts[3]
 		if callback.Message == nil {
 			callbackText = "Сообщение с выбором кода ТП недоступна."
 			break
@@ -417,20 +428,54 @@ func handleAdminCallback(
 			break
 		}
 
-		if err := sendSRCodeKeyboard(
-			ctx,
-			callback.Message.Chat.ID,
-			tgID,
-			userService,
-			territoryID,
-		); err != nil {
-			log.Println("[TELEGRAM] failed to show sr-code keyboard:", err)
-			callbackText = "Не удалось показать кода ТП"
+		if scenario == "sr" {
+			if err := sendSRCodeKeyboard(
+				ctx,
+				callback.Message.Chat.ID,
+				tgID,
+				userService,
+				territoryID,
+			); err != nil {
+				log.Println("[TELEGRAM] failed to show sr-code keyboard:", err)
+				callbackText = "Не удалось показать коды ТП"
+				break
+			}
+
+			removeInlineKeyboard(callback)
+			callbackText = "Выберите код ТП"
+			break
+		}
+		if scenario != "sv" {
+			callbackText = "Неизвестный сценарий"
 			break
 		}
 
+		user, err := userService.GetUserByTgID(ctx, tgID)
+		if err != nil {
+			log.Println("[TELEGRAM] failed to get user:", err)
+			callbackText = "Не удалось найти пользователя"
+			break
+		}
+
+		if user == nil {
+			callbackText = "Пользователь не найден"
+			break
+		}
+
+		if err := userService.AssignSVTerritoryAndUpdate(ctx, user.ID, territoryID, tgID); err != nil {
+			log.Println("[TELEGRAM] failed to assign sv:", err)
+			callbackText = "Не удалось назначит Супервайзера на территорию"
+			break
+		}
 		removeInlineKeyboard(callback)
-		callbackText = "Выберите код ТП"
+
+		send(
+			tgID,
+			"Ваша заявка одобрена.\nВы назначены супервайзером территории.",
+		)
+
+		callbackText = "Супервайзер успешно назначен"
+		break
 
 	case "code":
 		if len(parts) != 3 {
@@ -528,6 +573,7 @@ func sendWorkGroupKeyboard(
 	adminID int64,
 	tgID int64,
 	userService *service.UserService,
+	scenario string,
 ) error {
 	workGroups, err := userService.GetWorkGroups(ctx)
 	if err != nil {
@@ -545,7 +591,7 @@ func sendWorkGroupKeyboard(
 	for i, item := range workGroups {
 		button := tgbotapi.NewInlineKeyboardButtonData(
 			item.Name,
-			fmt.Sprintf("group:%d:%d", tgID, item.ID),
+			fmt.Sprintf("group:%d:%d:%s", tgID, item.ID, scenario),
 		)
 		row = append(row, button)
 
@@ -575,6 +621,7 @@ func sendTerritoryKeyboard(
 	tgID int64,
 	userService *service.UserService,
 	workGroupID int,
+	scenario string,
 ) error {
 	territories, err := userService.GetTerritoriesByGroup(ctx, workGroupID)
 	if err != nil {
@@ -592,7 +639,7 @@ func sendTerritoryKeyboard(
 	for i, item := range territories {
 		button := tgbotapi.NewInlineKeyboardButtonData(
 			item.Name,
-			fmt.Sprintf("territory:%d:%d", tgID, item.ID),
+			fmt.Sprintf("territory:%d:%d:%s", tgID, item.ID, scenario),
 		)
 		row = append(row, button)
 
