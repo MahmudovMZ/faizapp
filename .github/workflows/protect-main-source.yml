@@ -1,0 +1,21 @@
+name: Protect main source branch
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  only-develop-to-main:
+    name: Only develop can merge into main
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check source branch
+        run: |
+          if [ "${{ github.head_ref }}" != "develop" ]; then
+            echo "Only the develop branch can be merged into main."
+            exit 1
+          fi
+
+          echo "Source branch is develop."
