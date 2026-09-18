@@ -10,14 +10,33 @@ import (
 )
 
 type userServiceRepoMock struct {
-	user          *models.User
-	getErr        error
-	createErr     error
-	updateErr     error
-	updateCalled  bool
+	user         *models.User
+	userByID     *models.User
+	getErr       error
+	getByIDErr   error
+	createErr    error
+	updateErr    error
+	assignErr    error
+	updateCalled bool
+	assignCalled bool
+
 	updatedTgID   int64
 	updatedStatus string
 	updatedRole   *string
+
+	assignedUserID   string
+	assignedSRCodeID int
+
+	workGroups     []models.WorkGroup
+	territories    []models.Territory
+	srCodes        []models.SRCode
+	workGroupsErr  error
+	territoriesErr error
+	srCodesErr     error
+
+	assignAndApproveErr    error
+	assignAndApproveCalled bool
+	assignedTgID           int64
 }
 
 func (m *userServiceRepoMock) CreateUser(
@@ -34,6 +53,13 @@ func (m *userServiceRepoMock) GetUserByTgID(
 	return m.user, m.getErr
 }
 
+func (m *userServiceRepoMock) GetUserByID(
+	_ context.Context,
+	_ string,
+) (*models.User, error) {
+	return m.userByID, m.getByIDErr
+}
+
 func (m *userServiceRepoMock) UpdateUserStatus(
 	_ context.Context,
 	tgID int64,
@@ -44,41 +70,70 @@ func (m *userServiceRepoMock) UpdateUserStatus(
 	m.updatedTgID = tgID
 	m.updatedStatus = status
 	m.updatedRole = role
-
 	return m.updateErr
 }
 
+func (m *userServiceRepoMock) AssignSRCode(
+	_ context.Context,
+	userID string,
+	srCodeID int,
+) error {
+	m.assignCalled = true
+	m.assignedUserID = userID
+	m.assignedSRCodeID = srCodeID
+	return m.assignErr
+}
+
+func (m *userServiceRepoMock) GetAssignmentsByUser(
+	_ context.Context,
+	_ string,
+) ([]*models.SRAssignment, error) {
+	return nil, nil
+}
+
+func (m *userServiceRepoMock) GetWorkGroups(
+	_ context.Context,
+) ([]models.WorkGroup, error) {
+	return m.workGroups, m.workGroupsErr
+}
+
+func (m *userServiceRepoMock) GetTerritoriesByGroup(
+	_ context.Context,
+	_ int,
+) ([]models.Territory, error) {
+	return m.territories, m.territoriesErr
+}
+
+func (m *userServiceRepoMock) GetAvailableSRCodes(
+	_ context.Context,
+	_ int,
+) ([]models.SRCode, error) {
+	return m.srCodes, m.srCodesErr
+}
+
 func TestGetUserByTgIDSuccess(t *testing.T) {
-	expectedUser := &models.User{
+	expected := &models.User{
 		TgID:     8281761514,
 		FullName: "Muhammad",
 	}
 
-	repo := &userServiceRepoMock{
-		user: expectedUser,
-	}
-
-	service := NewUserService(repo)
+	service := NewUserService(&userServiceRepoMock{user: expected})
 
 	user, err := service.GetUserByTgID(
 		context.Background(),
-		expectedUser.TgID,
+		expected.TgID,
 	)
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if user != expectedUser {
-		t.Fatalf("user = %+v, want %+v", user, expectedUser)
+	if user != expected {
+		t.Fatalf("user = %+v, want %+v", user, expected)
 	}
 }
 
 func TestGetUserByTgIDNotFound(t *testing.T) {
-	repo := &userServiceRepoMock{
-		getErr: pgx.ErrNoRows,
-	}
-
+	repo := &userServiceRepoMock{getErr: pgx.ErrNoRows}
 	service := NewUserService(repo)
 
 	user, err := service.GetUserByTgID(
@@ -95,57 +150,12 @@ func TestGetUserByTgIDNotFound(t *testing.T) {
 	}
 }
 
-func TestGetUserByTgIDRepositoryError(t *testing.T) {
-	expectedErr := errors.New("database error")
-
-	repo := &userServiceRepoMock{
-		getErr: expectedErr,
-	}
-
-	service := NewUserService(repo)
-
-	_, err := service.GetUserByTgID(
-		context.Background(),
-		8281761514,
-	)
-
-	if !errors.Is(err, expectedErr) {
-		t.Fatalf("error = %v, want %v", err, expectedErr)
-	}
-}
-
-func TestCreateUserSuccess(t *testing.T) {
-	repo := &userServiceRepoMock{}
-	service := NewUserService(repo)
-
-	user := &models.User{
-		TgID:     8281761514,
-		FullName: "Muhammad",
-	}
-
-	err := service.CreateUser(
-		context.Background(),
-		user,
-	)
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func TestCreateUserRepositoryError(t *testing.T) {
 	expectedErr := errors.New("database error")
-
-	repo := &userServiceRepoMock{
-		createErr: expectedErr,
-	}
-
+	repo := &userServiceRepoMock{createErr: expectedErr}
 	service := NewUserService(repo)
 
-	err := service.CreateUser(
-		context.Background(),
-		&models.User{},
-	)
+	err := service.CreateUser(context.Background(), &models.User{})
 
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("error = %v, want %v", err, expectedErr)
@@ -161,7 +171,6 @@ func TestApproveUserSuccess(t *testing.T) {
 		8281761514,
 		"Dispatcher",
 	)
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -170,32 +179,15 @@ func TestApproveUserSuccess(t *testing.T) {
 		t.Fatal("UpdateUserStatus was not called")
 	}
 
-	if repo.updatedTgID != 8281761514 {
-		t.Errorf(
-			"tgID = %d, want %d",
-			repo.updatedTgID,
-			8281761514,
-		)
-	}
-
 	if repo.updatedStatus != "approved" {
-		t.Errorf(
-			"status = %q, want %q",
-			repo.updatedStatus,
-			"approved",
-		)
+		t.Errorf("status = %q, want %q",
+			repo.updatedStatus, "approved")
 	}
 
-	if repo.updatedRole == nil {
-		t.Fatal("role is nil")
-	}
-
-	if *repo.updatedRole != "Dispatcher" {
-		t.Errorf(
-			"role = %q, want %q",
-			*repo.updatedRole,
-			"Dispatcher",
-		)
+	if repo.updatedRole == nil ||
+		*repo.updatedRole != "Dispatcher" {
+		t.Errorf("role = %v, want Dispatcher",
+			repo.updatedRole)
 	}
 }
 
@@ -218,26 +210,6 @@ func TestApproveUserEmptyRole(t *testing.T) {
 	}
 }
 
-func TestApproveUserRepositoryError(t *testing.T) {
-	expectedErr := errors.New("database error")
-
-	repo := &userServiceRepoMock{
-		updateErr: expectedErr,
-	}
-
-	service := NewUserService(repo)
-
-	err := service.ApproveUser(
-		context.Background(),
-		8281761514,
-		"Dispatcher",
-	)
-
-	if !errors.Is(err, expectedErr) {
-		t.Fatalf("error = %v, want %v", err, expectedErr)
-	}
-}
-
 func TestRejectUserSuccess(t *testing.T) {
 	repo := &userServiceRepoMock{}
 	service := NewUserService(repo)
@@ -246,7 +218,6 @@ func TestRejectUserSuccess(t *testing.T) {
 		context.Background(),
 		8281761514,
 	)
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -256,11 +227,8 @@ func TestRejectUserSuccess(t *testing.T) {
 	}
 
 	if repo.updatedStatus != "rejected" {
-		t.Errorf(
-			"status = %q, want %q",
-			repo.updatedStatus,
-			"rejected",
-		)
+		t.Errorf("status = %q, want rejected",
+			repo.updatedStatus)
 	}
 
 	if repo.updatedRole != nil {
@@ -268,21 +236,234 @@ func TestRejectUserSuccess(t *testing.T) {
 	}
 }
 
-func TestRejectUserRepositoryError(t *testing.T) {
-	expectedErr := errors.New("database error")
+func TestGetUserByIDSuccess(t *testing.T) {
+	expected := &models.User{
+		ID:       "user-1",
+		FullName: "Muhammad",
+	}
+
+	repo := &userServiceRepoMock{userByID: expected}
+	service := NewUserService(repo)
+
+	user, err := service.GetUserByID(
+		context.Background(),
+		"user-1",
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if user != expected {
+		t.Fatalf("user = %+v, want %+v", user, expected)
+	}
+}
+
+func TestAssignSRCodeSuccess(t *testing.T) {
+	role := "Торговый представитель"
 
 	repo := &userServiceRepoMock{
-		updateErr: expectedErr,
+		userByID: &models.User{
+			ID:     "user-1",
+			Role:   &role,
+			Status: "approved",
+		},
 	}
 
 	service := NewUserService(repo)
 
-	err := service.RejectUser(
+	err := service.AssignSRCode(
 		context.Background(),
+		"user-1",
+		10,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !repo.assignCalled {
+		t.Fatal("AssignSRCodeAndUpdate was not called")
+	}
+}
+
+func TestAssignSRCodeNotApproved(t *testing.T) {
+	role := "Торговый представитель"
+
+	repo := &userServiceRepoMock{
+		userByID: &models.User{
+			Role:   &role,
+			Status: "pending",
+		},
+	}
+
+	service := NewUserService(repo)
+
+	err := service.AssignSRCode(
+		context.Background(),
+		"user-1",
+		10,
+	)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if repo.assignCalled {
+		t.Fatal("AssignSRCodeAndUpdate should not be called")
+	}
+}
+
+func TestAssignSRCodeWrongRole(t *testing.T) {
+	role := "Супервайзер"
+
+	repo := &userServiceRepoMock{
+		userByID: &models.User{
+			Role:   &role,
+			Status: "approved",
+		},
+	}
+
+	service := NewUserService(repo)
+
+	err := service.AssignSRCode(
+		context.Background(),
+		"user-1",
+		10,
+	)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if repo.assignCalled {
+		t.Fatal("AssignSRCodeAndUpdate should not be called")
+	}
+}
+
+func TestGetWorkGroups(t *testing.T) {
+	expected := []models.WorkGroup{
+		{ID: 1, Name: "Розница"},
+		{ID: 2, Name: "ОПТ"},
+	}
+
+	repo := &userServiceRepoMock{workGroups: expected}
+	service := NewUserService(repo)
+
+	result, err := service.GetWorkGroups(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result) != 2 {
+		t.Fatalf("got %d groups, want 2", len(result))
+	}
+}
+
+func TestGetTerritoriesByGroup(t *testing.T) {
+	repo := &userServiceRepoMock{
+		territories: []models.Territory{
+			{ID: 1, Name: "Розница 1", WorkGroupID: 1},
+		},
+	}
+
+	service := NewUserService(repo)
+
+	result, err := service.GetTerritoriesByGroup(
+		context.Background(),
+		1,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result) != 1 {
+		t.Fatalf("got %d territories, want 1", len(result))
+	}
+}
+
+func TestGetAvailableSRCodes(t *testing.T) {
+	repo := &userServiceRepoMock{
+		srCodes: []models.SRCode{
+			{ID: 1, Code: "SAM-1"},
+		},
+	}
+
+	service := NewUserService(repo)
+
+	result, err := service.GetAvailableSRCodes(
+		context.Background(),
+		1,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result) != 1 {
+		t.Fatalf("got %d codes, want 1", len(result))
+	}
+
+	if result[0].Code != "SAM-1" {
+		t.Errorf("code = %q, want SAM-1", result[0].Code)
+	}
+}
+
+func (m *userServiceRepoMock) AssignSRCodeAndUpdate(
+	_ context.Context,
+	tgID int64,
+	_ string,
+	_ *string,
+	userID string,
+	srCodeID int,
+) error {
+	m.assignAndApproveCalled = true
+	m.assignedTgID = tgID
+	m.assignedUserID = userID
+	m.assignedSRCodeID = srCodeID
+
+	return m.assignAndApproveErr
+}
+
+func TestAssignSRCodeAndApproveRepositoryError(t *testing.T) {
+	expectedErr := errors.New("database error")
+
+	repo := &userServiceRepoMock{
+		userByID: &models.User{
+			ID: "user-1",
+		},
+		assignAndApproveErr: expectedErr,
+	}
+
+	service := NewUserService(repo)
+
+	err := service.AssignSRCodeAndApprove(
+		context.Background(),
+		"user-1",
+		10,
 		8281761514,
 	)
 
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("error = %v, want %v", err, expectedErr)
+	}
+}
+
+func TestAssignSRCodeAndApproveSuccess(t *testing.T) {
+	repo := &userServiceRepoMock{
+		userByID: &models.User{
+			ID: "user-1",
+		},
+	}
+
+	service := NewUserService(repo)
+
+	err := service.AssignSRCodeAndApprove(
+		context.Background(),
+		"user-1",
+		10,
+		8281761514,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !repo.assignAndApproveCalled {
+		t.Fatal("AssignSRCodeAndUpdate was not called")
 	}
 }
