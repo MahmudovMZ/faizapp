@@ -20,6 +20,7 @@ type Repository interface {
 	GetTerritoriesByGroup(ctx context.Context, workGroupID int) ([]models.Territory, error)
 	GetAvailableSRCodes(ctx context.Context, territoryID int) ([]models.SRCode, error)
 	AssignSRCodeAndUpdate(ctx context.Context, tgID int64, status string, role *string, userID string, srCodeID int) error
+	AssignSVTerritoryAndUpdate(ctx context.Context, tgID int64, status string, role *string, superVisorID string, territoryID int) error
 }
 
 type FaizAppRepo struct {
@@ -209,4 +210,72 @@ func (r *FaizAppRepo) AssignSRCode(
 
 	_, err := r.Pool.Exec(ctx, query, userID, srCodeID)
 	return err
+}
+
+func (r *FaizAppRepo) AssignSVTerritoryAndUpdate(ctx context.Context,
+	tgID int64,
+	status string,
+	role *string,
+	userID string,
+	territoryID int) error {
+	log.Println("[REPOSITORY] assigning territory supervisor and updating the status")
+	tx, err := r.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	updateTerritoryQuery := `
+UPDATE territories
+SET supervisor_id = $1
+WHERE id = $2
+  AND supervisor_id IS NULL
+	`
+
+	result1, err := tx.Exec(
+		ctx,
+		updateTerritoryQuery,
+		userID,
+		territoryID,
+	)
+	if err != nil {
+		return err
+	}
+
+	if result1.RowsAffected() != 1 {
+		return fmt.Errorf("territory not found or already assigned")
+	}
+
+	updateQuery := `
+		UPDATE users
+		SET status = $1,
+		    role = $2
+		WHERE id = $3
+		  AND tg_id = $4
+		  AND status = 'pending'
+	`
+
+	result2, err := tx.Exec(
+		ctx,
+		updateQuery,
+		status,
+		role,
+		userID,
+		tgID,
+	)
+	if err != nil {
+		return err
+	}
+
+	if result2.RowsAffected() != 1 {
+		return fmt.Errorf("user not found or already processed")
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	return nil
 }

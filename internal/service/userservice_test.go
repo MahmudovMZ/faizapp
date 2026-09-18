@@ -37,6 +37,8 @@ type userServiceRepoMock struct {
 	assignAndApproveErr    error
 	assignAndApproveCalled bool
 	assignedTgID           int64
+
+	assignSVErr error
 }
 
 func (m *userServiceRepoMock) CreateUser(
@@ -466,4 +468,15 @@ func TestAssignSRCodeAndApproveSuccess(t *testing.T) {
 	if !repo.assignAndApproveCalled {
 		t.Fatal("AssignSRCodeAndUpdate was not called")
 	}
+}
+
+func (m *userServiceRepoMock) AssignSVTerritoryAndUpdate(
+	_ context.Context,
+	_ int64,
+	_ string,
+	_ *string,
+	_ string,
+	_ int,
+) error {
+	return m.assignSVErr
 }
