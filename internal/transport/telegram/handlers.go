@@ -354,6 +354,18 @@ func handleAdminCallback(
 			break
 		}
 
+		if role == "Диспетчер" || role == "Коммерческий Директор" {
+			if err := userService.ApproveUser(ctx, tgID, role); err != nil {
+				log.Println("[TELEGRAM] failed to approve user:", err)
+				callbackText = "Не удалось назначить роль сотрудника"
+				break
+			}
+			removeInlineKeyboard(callback)
+			send(tgID, "Ваша заявка одобрена. Вам назначена роль: "+role)
+			callbackText = "Роль сотрудника назначена"
+			break
+		}
+
 		if role != "Торговый Представитель" && role != "Супервайзер" {
 			callbackText = "Сценарий для этой роли ещё не настроен"
 			break
