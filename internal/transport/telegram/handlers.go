@@ -135,14 +135,20 @@ func BotHandler(
 			userState[chatID] = models.STATE_WAITING_PHONE
 
 		case models.STATE_WAITING_PHONE:
-			if update.Message.Contact == nil ||
-				strings.TrimSpace(update.Message.Contact.PhoneNumber) == "" {
+			contact := update.Message.Contact
+
+			if contact == nil ||
+				strings.TrimSpace(contact.PhoneNumber) == "" {
 				send(chatID, "Пожалуйста, используйте кнопку для отправки номера телефона.")
 				return
 			}
 
-			userData[chatID]["Phone"] =
-				strings.TrimSpace(update.Message.Contact.PhoneNumber)
+			if !isOwnTelegramContact(contact, tgID) {
+				send(chatID, "Можно отправить только свой Telegram-контакт.")
+				return
+			}
+
+			userData[chatID]["Phone"] = strings.TrimSpace(contact.PhoneNumber)
 			removeKeyboard(chatID, "Номер телефона сохранён.")
 
 			user := models.User{
@@ -782,4 +788,15 @@ func parseCallbackData(data string) (
 	}
 
 	return action, tgID, role, nil
+}
+func isOwnTelegramContact(contact *tgbotapi.Contact, tgID int64) bool {
+	if contact == nil {
+		return false
+	}
+
+	if strings.TrimSpace(contact.PhoneNumber) == "" {
+		return false
+	}
+
+	return contact.UserID == tgID
 }

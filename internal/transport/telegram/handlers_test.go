@@ -1,6 +1,10 @@
 package telegram
 
-import "testing"
+import (
+	"testing"
+
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+)
 
 func TestParseCallbackData(t *testing.T) {
 	tests := []struct {
@@ -77,6 +81,63 @@ func TestParseCallbackData(t *testing.T) {
 
 			if role != tt.role {
 				t.Errorf("role = %q, want %q", role, tt.role)
+			}
+		})
+	}
+}
+
+func TestIsOwnTelegramContact(t *testing.T) {
+	const tgID int64 = 8281761514
+
+	tests := []struct {
+		name    string
+		contact *tgbotapi.Contact
+		want    bool
+	}{
+		{
+			name: "own contact",
+			contact: &tgbotapi.Contact{
+				PhoneNumber: "+992900000000",
+				UserID:      tgID,
+			},
+			want: true,
+		},
+		{
+			name: "foreign contact",
+			contact: &tgbotapi.Contact{
+				PhoneNumber: "+992900000001",
+				UserID:      1111111111,
+			},
+			want: false,
+		},
+		{
+			name: "empty phone",
+			contact: &tgbotapi.Contact{
+				UserID: tgID,
+			},
+			want: false,
+		},
+		{
+			name:    "nil contact",
+			contact: nil,
+			want:    false,
+		},
+		{
+			name: "contact without user id",
+			contact: &tgbotapi.Contact{
+				PhoneNumber: "+992900000000",
+				UserID:      0,
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isOwnTelegramContact(tt.contact, tgID)
+
+			if got != tt.want {
+				t.Fatalf("isOwnTelegramContact() = %v, want %v", got, tt.want)
 			}
 		})
 	}
