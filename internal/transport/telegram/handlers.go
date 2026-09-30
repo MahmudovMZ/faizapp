@@ -296,6 +296,7 @@ func handleAdminCallback(
 	answer := func(text string) {
 		if _, err := bot.Request(tgbotapi.NewCallback(callback.ID, text)); err != nil {
 			log.Println("[TELEGRAM] failed to answer callback:", err)
+
 		}
 	}
 
@@ -304,22 +305,17 @@ func handleAdminCallback(
 		return
 	}
 
-	parts := strings.SplitN(callback.Data, ":", 4)
-	if len(parts) < 2 {
-		answer("Некорректные данные запроса")
-		return
-	}
-
-	tgID, err := strconv.ParseInt(parts[1], 10, 64)
+	parsed, err := parseCallbackData(callback.Data)
 	if err != nil {
-		answer("Некорректный Telegram ID")
+		log.Println("[TELEGRAM] failed to parse callback data:", err)
+		answer("Некорректные данные запроса")
 		return
 	}
 
 	scenario := ""
 
 	callbackText := "Неизвестное действие"
-	switch parts[0] {
+	switch parsed.Action {
 	case "approve":
 		if callback.Message == nil {
 			callbackText = "Сообщение заявки недоступно"
@@ -328,7 +324,7 @@ func handleAdminCallback(
 
 		if err := sendRoleSelectionKeyboard(
 			callback.Message.Chat.ID,
-			tgID,
+			parsed.TgID,
 		); err != nil {
 			log.Println("[TELEGRAM] failed to show role keyboard:", err)
 			callbackText = "Не удалось показать роли"
@@ -339,35 +335,26 @@ func handleAdminCallback(
 		callbackText = "Выберите роль пользователя"
 
 	case "role":
-		if len(parts) != 3 {
-			callbackText = "Роль не указана"
-			break
-		}
+
 		if callback.Message == nil {
 			callbackText = "Сообщение заявки недоступно"
 			break
 		}
 
-		roleID, err := strconv.Atoi(parts[2])
-		if err != nil {
-			callbackText = "Некорректный ID роли"
-			break
-		}
-
-		role, ok := roleTitleByID(roleID)
+		role, ok := roleTitleByID(parsed.ID)
 		if !ok {
 			callbackText = "Неизвестная роль"
 			break
 		}
 
 		if role == "Диспетчер" || role == "Коммерческий Директор" {
-			if err := userService.ApproveUser(ctx, tgID, role); err != nil {
+			if err := userService.ApproveUser(ctx, parsed.TgID, role); err != nil {
 				log.Println("[TELEGRAM] failed to approve user:", err)
 				callbackText = "Не удалось назначить роль сотрудника"
 				break
 			}
 			removeInlineKeyboard(callback)
-			send(tgID, "Ваша заявка одобрена. Вам назначена роль: "+role)
+			send(parsed.TgID, "Ваша заявка одобрена. Вам назначена роль: "+role)
 			callbackText = "Роль сотрудника назначена"
 			break
 		}
@@ -385,7 +372,7 @@ func handleAdminCallback(
 		if err := sendWorkGroupKeyboard(
 			ctx,
 			callback.Message.Chat.ID,
-			tgID,
+			parsed.TgID,
 			userService,
 			scenario,
 		); err != nil {
@@ -398,28 +385,18 @@ func handleAdminCallback(
 		callbackText = "Выберите рабочую группу"
 
 	case "group":
-		if len(parts) != 4 {
-			callbackText = "Рабочая группа не указана"
-			break
-		}
-		scenario = parts[3]
+		scenario = parsed.Scenario
 		if callback.Message == nil {
 			callbackText = "Сообщение с выбором группы недоступно"
-			break
-		}
-
-		workGroupID, err := strconv.Atoi(parts[2])
-		if err != nil {
-			callbackText = "Некорректный ID рабочей группы"
 			break
 		}
 
 		if err := sendTerritoryKeyboard(
 			ctx,
 			callback.Message.Chat.ID,
-			tgID,
+			parsed.TgID,
 			userService,
-			workGroupID,
+			parsed.ID,
 			scenario,
 		); err != nil {
 			log.Println("[TELEGRAM] failed to show territories:", err)
@@ -431,18 +408,9 @@ func handleAdminCallback(
 		callbackText = "Выберите территорию"
 
 	case "territory":
-		if len(parts) != 4 {
-			callbackText = "Территория не указана"
-			break
-		}
-		scenario = parts[3]
+		scenario = parsed.Scenario
 		if callback.Message == nil {
 			callbackText = "Сообщение с выбором кода ТП недоступна."
-			break
-		}
-		territoryID, err := strconv.Atoi(parts[2])
-		if err != nil {
-			callbackText = "Некорректный ID территории."
 			break
 		}
 
@@ -450,9 +418,9 @@ func handleAdminCallback(
 			if err := sendSRCodeKeyboard(
 				ctx,
 				callback.Message.Chat.ID,
-				tgID,
+				parsed.TgID,
 				userService,
-				territoryID,
+				parsed.ID,
 			); err != nil {
 				log.Println("[TELEGRAM] failed to show sr-code keyboard:", err)
 				callbackText = "Не удалось показать коды ТП"
@@ -468,7 +436,7 @@ func handleAdminCallback(
 			break
 		}
 
-		user, err := userService.GetUserByTgID(ctx, tgID)
+		user, err := userService.GetUserByTgID(ctx, parsed.TgID)
 		if err != nil {
 			log.Println("[TELEGRAM] failed to get user:", err)
 			callbackText = "Не удалось найти пользователя"
@@ -480,7 +448,7 @@ func handleAdminCallback(
 			break
 		}
 
-		if err := userService.AssignSVTerritoryAndUpdate(ctx, user.ID, territoryID, tgID); err != nil {
+		if err := userService.AssignSVTerritoryAndUpdate(ctx, user.ID, parsed.ID, parsed.TgID); err != nil {
 			log.Println("[TELEGRAM] failed to assign sv:", err)
 			callbackText = "Не удалось назначит Супервайзера на территорию"
 			break
@@ -488,7 +456,7 @@ func handleAdminCallback(
 		removeInlineKeyboard(callback)
 
 		send(
-			tgID,
+			parsed.TgID,
 			"Ваша заявка одобрена.\nВы назначены супервайзером территории.",
 		)
 
@@ -496,16 +464,7 @@ func handleAdminCallback(
 		break
 
 	case "code":
-		if len(parts) != 3 {
-			callbackText = "Код ТП не указан"
-			break
-		}
-		srCodeID, err := strconv.Atoi(parts[2])
-		if err != nil {
-			callbackText = "Некорректный ID кода ТП"
-			break
-		}
-		user, err := userService.GetUserByTgID(ctx, tgID)
+		user, err := userService.GetUserByTgID(ctx, parsed.TgID)
 		if err != nil {
 			log.Println("[TELEGRAM] failed to get user:", err)
 			callbackText = "Не удалось найти Пользователя"
@@ -518,8 +477,8 @@ func handleAdminCallback(
 		if err := userService.AssignSRCodeAndApprove(
 			ctx,
 			user.ID,
-			srCodeID,
-			tgID,
+			parsed.ID,
+			parsed.TgID,
 		); err != nil {
 			log.Println("[TELEGRAM] failed to assign sr-code:", err)
 			callbackText = "Не удалось назначить код ТП"
@@ -528,20 +487,20 @@ func handleAdminCallback(
 
 		removeInlineKeyboard(callback)
 		send(
-			tgID,
+			parsed.TgID,
 			"Ваша заявка одобрена.\nКод ТП успешно назначен.",
 		)
 		callbackText = "Пользователь успешно сохранен"
 
 	case "reject":
-		if err := userService.RejectUser(ctx, tgID); err != nil {
+		if err := userService.RejectUser(ctx, parsed.TgID); err != nil {
 			log.Println("[TELEGRAM] failed to reject user:", err)
 			callbackText = "Не удалось отклонить заявку"
 			break
 		}
 
 		removeInlineKeyboard(callback)
-		send(tgID, "Ваша заявка отклонена администратором.")
+		send(parsed.TgID, "Ваша заявка отклонена администратором.")
 		callbackText = "Заявка отклонена"
 	}
 
@@ -751,44 +710,69 @@ func removeInlineKeyboard(callback *tgbotapi.CallbackQuery) {
 	}
 }
 
+type callbackData struct {
+	Action   string
+	TgID     int64
+	ID       int
+	Scenario string
+}
+
 func parseCallbackData(data string) (
-	action string,
-	tgID int64,
-	role string,
+	callback *callbackData,
 	err error,
 ) {
-	parts := strings.SplitN(data, ":", 3)
+	parts := strings.SplitN(data, ":", 4)
 
 	if len(parts) < 2 {
-		return "", 0, "", fmt.Errorf("invalid callback data")
+		return nil, fmt.Errorf("invalid callback data")
 	}
 
-	action = parts[0]
-
-	tgID, err = strconv.ParseInt(parts[1], 10, 64)
+	tgID, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
-		return "", 0, "", fmt.Errorf("invalid telegram id: %w", err)
+		return nil, fmt.Errorf("invalid telegram id: %w", err)
 	}
 
-	if action == "role" {
-		if len(parts) != 3 || strings.TrimSpace(parts[2]) == "" {
-			return "", 0, "", fmt.Errorf("role is required")
+	result := &callbackData{
+		Action: parts[0],
+		TgID:   tgID}
+
+	switch result.Action {
+	case "approve", "reject":
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("%s does not accept extra parameters", result.Action)
 		}
 
-		role = strings.TrimSpace(parts[2])
+	case "role", "code":
+		if len(parts) != 3 {
+			return nil, fmt.Errorf("%s requires an id", result.Action)
+		}
+
+		result.ID, err = strconv.Atoi(parts[2])
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s id: %w", result.Action, err)
+		}
+
+	case "group", "territory":
+		if len(parts) != 4 {
+			return nil, fmt.Errorf("%s requires id and scenario", result.Action)
+		}
+
+		result.ID, err = strconv.Atoi(parts[2])
+		if err != nil {
+			return nil, fmt.Errorf("invalid %s id: %w", result.Action, err)
+		}
+
+		result.Scenario = strings.TrimSpace(parts[3])
+		if result.Scenario != "sr" && result.Scenario != "sv" {
+			return nil, fmt.Errorf("invalid scenario: %s", result.Scenario)
+		}
+	default:
+		return nil, fmt.Errorf("unknown action: %s", result.Action)
 	}
 
-	if action != "approve" &&
-		action != "reject" &&
-		action != "role" &&
-		action != "group" &&
-		action != "territory" &&
-		action != "code" {
-		return "", 0, "", fmt.Errorf("unknown action: %s", action)
-	}
-
-	return action, tgID, role, nil
+	return result, nil
 }
+
 func isOwnTelegramContact(contact *tgbotapi.Contact, tgID int64) bool {
 	if contact == nil {
 		return false
