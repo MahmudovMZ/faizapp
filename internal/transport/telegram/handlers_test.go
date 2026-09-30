@@ -8,12 +8,13 @@ import (
 
 func TestParseCallbackData(t *testing.T) {
 	tests := []struct {
-		name    string
-		data    string
-		action  string
-		tgID    int64
-		role    string
-		wantErr bool
+		name     string
+		data     string
+		action   string
+		tgID     int64
+		id       int
+		scenario string
+		wantErr  bool
 	}{
 		{
 			name:   "approve",
@@ -29,10 +30,33 @@ func TestParseCallbackData(t *testing.T) {
 		},
 		{
 			name:   "role",
-			data:   "role:8281761514:Dispatcher",
+			data:   "role:8281761514:2",
 			action: "role",
 			tgID:   8281761514,
-			role:   "Dispatcher",
+			id:     2,
+		},
+		{
+			name:     "group",
+			data:     "group:8281761514:5:sv",
+			action:   "group",
+			tgID:     8281761514,
+			id:       5,
+			scenario: "sv",
+		},
+		{
+			name:     "territory",
+			data:     "territory:8281761514:10:sr",
+			action:   "territory",
+			tgID:     8281761514,
+			id:       10,
+			scenario: "sr",
+		},
+		{
+			name:   "code",
+			data:   "code:8281761514:25",
+			action: "code",
+			tgID:   8281761514,
+			id:     25,
 		},
 		{
 			name:    "empty data",
@@ -40,13 +64,18 @@ func TestParseCallbackData(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "invalid id",
+			name:    "invalid telegram id",
 			data:    "approve:abc",
 			wantErr: true,
 		},
 		{
-			name:    "missing role",
+			name:    "missing id",
 			data:    "role:8281761514",
+			wantErr: true,
+		},
+		{
+			name:    "invalid scenario",
+			data:    "group:8281761514:5:unknown",
 			wantErr: true,
 		},
 		{
@@ -58,7 +87,7 @@ func TestParseCallbackData(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			action, tgID, role, err := parseCallbackData(tt.data)
+			result, err := parseCallbackData(tt.data)
 
 			if tt.wantErr {
 				if err == nil {
@@ -71,16 +100,24 @@ func TestParseCallbackData(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			if action != tt.action {
-				t.Errorf("action = %q, want %q", action, tt.action)
+			if result.Action != tt.action {
+				t.Errorf("action = %q, want %q", result.Action, tt.action)
 			}
 
-			if tgID != tt.tgID {
-				t.Errorf("tgID = %d, want %d", tgID, tt.tgID)
+			if result.TgID != tt.tgID {
+				t.Errorf("tgID = %d, want %d", result.TgID, tt.tgID)
 			}
 
-			if role != tt.role {
-				t.Errorf("role = %q, want %q", role, tt.role)
+			if result.ID != tt.id {
+				t.Errorf("id = %d, want %d", result.ID, tt.id)
+			}
+
+			if result.Scenario != tt.scenario {
+				t.Errorf(
+					"scenario = %q, want %q",
+					result.Scenario,
+					tt.scenario,
+				)
 			}
 		})
 	}
