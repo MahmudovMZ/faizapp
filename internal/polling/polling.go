@@ -16,9 +16,10 @@ func StartPolling(bot *tgbotapi.BotAPI, userService *service.UserService, botAdm
 	updateConfig.Timeout = 30
 
 	updates := bot.GetUpdatesChan(updateConfig)
+	handler := telegram.NewBotHandler(bot, userService, botAdmin)
 
 	for update := range updates {
-		telegram.BotHandler(bot, update, userService, botAdmin)
+		handler.BotHandler(update)
 	}
 
 }
