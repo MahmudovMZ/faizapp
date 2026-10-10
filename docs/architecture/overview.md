@@ -255,10 +255,13 @@ Telegram API
 GetUpdatesChan
     │
     ▼
+handler := telegram.NewBotHandler(bot, userService, botAdmin)
+    │
+    ▼
 for update := range updates
     │
     ▼
-telegram.BotHandler(...)
+handler.BotHandler(update)
 ```
 
 The polling package is responsible for update delivery, not business logic.
