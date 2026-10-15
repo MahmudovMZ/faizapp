@@ -1,8 +1,9 @@
 package models
 
 type WorkGroup struct {
-	ID   int
-	Name string
+	ID           int
+	Name         string
+	SupervisorID *string
 }
 
 type Territory struct {

@@ -121,3 +121,25 @@ func (u *UserService) AssignSVTerritoryAndUpdate(ctx context.Context, userID str
 	}
 	return nil
 }
+
+func (u *UserService) AssignSVWorkGroupAndUpdate(ctx context.Context, userID string, workGroupID int, tgID int64) error {
+	role := "Супервайзер"
+	status := "approved"
+
+	user, err := u.GetUserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if user == nil {
+		return errors.New("user not found")
+	}
+
+	return u.repo.AssignSVWorkGroupAndUpdate(
+		ctx,
+		tgID,
+		status,
+		&role,
+		user.ID,
+		workGroupID,
+	)
+}

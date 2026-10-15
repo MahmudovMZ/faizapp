@@ -10,7 +10,7 @@ import (
 func (r *FaizAppRepo) GetWorkGroups(ctx context.Context) ([]models.WorkGroup, error) {
 	log.Println("[REPOSITORY] getting work groups")
 	var workGroups []models.WorkGroup
-	query := `SELECT id, name FROM work_groups order by id`
+	query := `SELECT id, name, supervisor_id FROM work_groups order by id`
 	rows, err := r.Pool.Query(ctx, query)
 	if err != nil {
 		log.Println("[REPOSITORY] getting work groups: ", err)
@@ -19,7 +19,7 @@ func (r *FaizAppRepo) GetWorkGroups(ctx context.Context) ([]models.WorkGroup, er
 	defer rows.Close()
 	for rows.Next() {
 		var workGroup models.WorkGroup
-		if err := rows.Scan(&workGroup.ID, &workGroup.Name); err != nil {
+		if err := rows.Scan(&workGroup.ID, &workGroup.Name, &workGroup.SupervisorID); err != nil {
 			log.Println("[REPOSITORY] getting work groups: ", err)
 			return nil, err
 		}
