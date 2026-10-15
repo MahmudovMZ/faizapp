@@ -366,7 +366,7 @@ func (h *Handler) handleAdminCallback(
 			break
 		}
 
-		if role == "Диспетчер" || role == "Коммерческий Директор" {
+		if role == "Диспетчер" || role == "Коммерческий Директор" || role == "Старший Супервайзер" {
 			if err := h.UserService.ApproveUser(ctx, parsed.TgID, role); err != nil {
 				log.Println("[TELEGRAM] failed to approve user:", err)
 				callbackText = "Не удалось назначить роль сотрудника"
@@ -405,8 +405,51 @@ func (h *Handler) handleAdminCallback(
 
 	case "group":
 		scenario = parsed.Scenario
+
 		if callback.Message == nil {
 			callbackText = "Сообщение с выбором группы недоступно"
+			break
+		}
+
+		// Для супервайзера рабочая группа является конечным выбором.
+		if scenario == "sv" {
+			user, err := h.UserService.GetUserByTgID(ctx, parsed.TgID)
+			if err != nil {
+				log.Println("[TELEGRAM] failed to get user:", err)
+				callbackText = "Не удалось найти пользователя"
+				break
+			}
+
+			if user == nil {
+				callbackText = "Пользователь не найден"
+				break
+			}
+
+			if err := h.UserService.AssignSVWorkGroupAndUpdate(
+				ctx,
+				user.ID,
+				parsed.ID,
+				parsed.TgID,
+			); err != nil {
+				log.Println("[TELEGRAM] failed to assign sv to work group:", err)
+				callbackText = "Не удалось назначить Супервайзера на рабочую группу"
+				break
+			}
+
+			h.removeInlineKeyboard(callback)
+
+			h.send(
+				parsed.TgID,
+				"Ваша заявка одобрена.\nВы назначены супервайзером рабочей группы.",
+			)
+
+			callbackText = "Супервайзер успешно назначен"
+			break
+		}
+
+		// Для торгового представителя после группы выбирается территория.
+		if scenario != "sr" {
+			callbackText = "Неизвестный сценарий"
 			break
 		}
 
@@ -425,7 +468,6 @@ func (h *Handler) handleAdminCallback(
 
 		h.removeInlineKeyboard(callback)
 		callbackText = "Выберите территорию"
-
 	case "territory":
 		scenario = parsed.Scenario
 		if callback.Message == nil {

@@ -38,7 +38,8 @@ type userServiceRepoMock struct {
 	assignAndApproveCalled bool
 	assignedTgID           int64
 
-	assignSVErr error
+	assignSVErr             error
+	assignSVWorkGroupCalled bool
 }
 
 func (m *userServiceRepoMock) CreateUser(
@@ -479,4 +480,59 @@ func (m *userServiceRepoMock) AssignSVTerritoryAndUpdate(
 	_ int,
 ) error {
 	return m.assignSVErr
+}
+
+func (m *userServiceRepoMock) AssignSVWorkGroupAndUpdate(
+	_ context.Context,
+	_ int64,
+	_ string,
+	_ *string,
+	_ string,
+	_ int,
+) error {
+	m.assignSVWorkGroupCalled = true
+	return m.assignSVErr
+}
+
+func TestAssignSVWorkGroupAndUpdateSuccess(t *testing.T) {
+	repo := &userServiceRepoMock{
+		userByID: &models.User{ID: "user-1"},
+	}
+
+	service := NewUserService(repo)
+
+	err := service.AssignSVWorkGroupAndUpdate(
+		context.Background(),
+		"user-1",
+		1,
+		8281761514,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !repo.assignSVWorkGroupCalled {
+		t.Fatal("AssignSVWorkGroupAndUpdate was not called")
+	}
+}
+
+func TestAssignSVWorkGroupAndUpdateRepositoryError(t *testing.T) {
+	expectedErr := errors.New("work group already assigned")
+	repo := &userServiceRepoMock{
+		userByID:    &models.User{ID: "user-1"},
+		assignSVErr: expectedErr,
+	}
+
+	service := NewUserService(repo)
+
+	err := service.AssignSVWorkGroupAndUpdate(
+		context.Background(),
+		"user-1",
+		1,
+		8281761514,
+	)
+
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("error = %v, want %v", err, expectedErr)
+	}
 }

@@ -21,6 +21,7 @@ type Repository interface {
 	GetAvailableSRCodes(ctx context.Context, territoryID int) ([]models.SRCode, error)
 	AssignSRCodeAndUpdate(ctx context.Context, tgID int64, status string, role *string, userID string, srCodeID int) error
 	AssignSVTerritoryAndUpdate(ctx context.Context, tgID int64, status string, role *string, superVisorID string, territoryID int) error
+	AssignSVWorkGroupAndUpdate(ctx context.Context, tgID int64, status string, role *string, supervisorID string, workGroupID int) error
 }
 
 type FaizAppRepo struct {
@@ -278,4 +279,71 @@ WHERE id = $2
 	}
 
 	return nil
+}
+
+func (r *FaizAppRepo) AssignSVWorkGroupAndUpdate(
+	ctx context.Context,
+	tgID int64,
+	status string,
+	role *string,
+	supervisorID string,
+	workGroupID int,
+) error {
+	log.Println("[REPOSITORY] assigning work group supervisor")
+
+	tx, err := r.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	updateGroupQuery := `
+		UPDATE work_groups
+		SET supervisor_id = $1
+		WHERE id = $2
+		  AND supervisor_id IS NULL
+	`
+
+	result, err := tx.Exec(
+		ctx,
+		updateGroupQuery,
+		supervisorID,
+		workGroupID,
+	)
+	if err != nil {
+		return err
+	}
+
+	if result.RowsAffected() != 1 {
+		return fmt.Errorf("work group not found or already assigned")
+	}
+
+	updateUserQuery := `
+		UPDATE users
+		SET status = $1,
+		    role = $2
+		WHERE id = $3
+		  AND tg_id = $4
+		  AND status = 'pending'
+	`
+
+	result, err = tx.Exec(
+		ctx,
+		updateUserQuery,
+		status,
+		role,
+		supervisorID,
+		tgID,
+	)
+	if err != nil {
+		return err
+	}
+
+	if result.RowsAffected() != 1 {
+		return fmt.Errorf("user not found or already processed")
+	}
+
+	return tx.Commit(ctx)
 }
