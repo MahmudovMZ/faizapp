@@ -17,9 +17,10 @@ import (
 )
 
 type Handler struct {
-	TelegramBot *tgbotapi.BotAPI
-	UserService *service.UserService
-	BotAdmin    int64
+	TelegramBot  *tgbotapi.BotAPI
+	UserService  *service.UserService
+	PhotoService *service.PhotoService
+	BotAdmin     int64
 
 	botState  map[int64]string
 	userState map[int64]string
@@ -35,14 +36,15 @@ type callbackData struct {
 	Scenario string
 }
 
-func NewBotHandler(bot *tgbotapi.BotAPI, user *service.UserService, botAdmin int64) *Handler {
+func NewBotHandler(bot *tgbotapi.BotAPI, user *service.UserService, photo *service.PhotoService, botAdmin int64) *Handler {
 	return &Handler{
-		TelegramBot: bot,
-		UserService: user,
-		BotAdmin:    botAdmin,
-		botState:    make(map[int64]string),
-		userState:   make(map[int64]string),
-		userData:    make(map[int64]map[string]string),
+		TelegramBot:  bot,
+		UserService:  user,
+		PhotoService: photo,
+		BotAdmin:     botAdmin,
+		botState:     make(map[int64]string),
+		userState:    make(map[int64]string),
+		userData:     make(map[int64]map[string]string),
 	}
 }
 
@@ -69,6 +71,17 @@ func (h *Handler) BotHandler(
 	chatID := update.Message.Chat.ID
 	text := strings.TrimSpace(update.Message.Text)
 	tgID := update.Message.From.ID
+
+	if len(update.Message.Photo) > 0 {
+		count, err := h.handlePhotoMessage(ctx, update.Message)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		h.send(chatID, fmt.Sprintf("Received photos: %d", count))
+		return
+	}
+
 	stage := h.getBotState(chatID)
 
 	switch stage {
