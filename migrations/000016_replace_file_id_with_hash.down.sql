@@ -1,0 +1,7 @@
+DROP INDEX IF EXISTS idx_photos_sha256_hash;
+
+ALTER TABLE photos
+DROP COLUMN IF EXISTS sha256_hash;
+
+ALTER TABLE photos
+    ADD COLUMN IF NOT EXISTS telegram_file_id TEXT NOT NULL;

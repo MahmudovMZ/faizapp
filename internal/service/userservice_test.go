@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/MahmudovMZ/faizapp/internal/models"
 	"github.com/jackc/pgx/v5"
@@ -40,6 +41,10 @@ type userServiceRepoMock struct {
 
 	assignSVErr             error
 	assignSVWorkGroupCalled bool
+
+	photoErr      error
+	photoCount    int
+	photoCountErr error
 }
 
 func (m *userServiceRepoMock) CreateUser(
@@ -532,6 +537,123 @@ func TestAssignSVWorkGroupAndUpdateRepositoryError(t *testing.T) {
 		8281761514,
 	)
 
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("error = %v, want %v", err, expectedErr)
+	}
+}
+
+func (m *userServiceRepoMock) CreatePhoto(
+	_ context.Context,
+	_ *models.Photo,
+) error {
+	return m.photoErr
+}
+
+func (m *userServiceRepoMock) CountPhotosByUser(
+	_ context.Context,
+	_ string,
+) (int, error) {
+	return m.photoCount, m.photoCountErr
+}
+
+func (m *userServiceRepoMock) CountPhotosByDate(
+	_ context.Context,
+	_ time.Time,
+	_ time.Time,
+) (int, error) {
+	return m.photoCount, m.photoCountErr
+}
+
+func TestSavePhotoSuccess(t *testing.T) {
+	repo := &userServiceRepoMock{
+		user: &models.User{
+			ID: "user-1",
+		},
+		photoCount: 5,
+	}
+
+	service := NewPhotoService(repo)
+
+	count, err := service.SavePhoto(
+		context.Background(),
+		123456789,
+		10,
+		[]byte("photo data"),
+		"",
+		time.Now(),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if count != 5 {
+		t.Fatalf("count = %d, want 5", count)
+	}
+}
+
+func TestSavePhotoUserNotFound(t *testing.T) {
+	repo := &userServiceRepoMock{}
+
+	service := NewPhotoService(repo)
+
+	_, err := service.SavePhoto(
+		context.Background(),
+		123456789,
+		10,
+		[]byte("photo data"),
+		"",
+		time.Now(),
+	)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestSavePhotoCreateError(t *testing.T) {
+	expectedErr := errors.New("create photo error")
+
+	repo := &userServiceRepoMock{
+		user: &models.User{
+			ID: "user-1",
+		},
+		photoErr: expectedErr,
+	}
+
+	service := NewPhotoService(repo)
+
+	_, err := service.SavePhoto(
+		context.Background(),
+		123456789,
+		10,
+		[]byte("photo data"),
+		"",
+		time.Now(),
+	)
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("error = %v, want %v", err, expectedErr)
+	}
+}
+
+func TestSavePhotoCountError(t *testing.T) {
+	expectedErr := errors.New("count photos error")
+
+	repo := &userServiceRepoMock{
+		user: &models.User{
+			ID: "user-1",
+		},
+		photoCountErr: expectedErr,
+	}
+
+	service := NewPhotoService(repo)
+
+	_, err := service.SavePhoto(
+		context.Background(),
+		123456789,
+		10,
+		[]byte("photo data"),
+		"",
+		time.Now(),
+	)
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("error = %v, want %v", err, expectedErr)
 	}
