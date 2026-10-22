@@ -1,313 +1,207 @@
+# FaizApp
+
 <p align="center">
-  <img src="docs/assets/faizapp-logo-dark.png" alt="FaizApp Logo" width="180">
+  <img src="docs/assets/faizapp-logo-dark.png" alt="FaizApp logo" width="180">
 </p>
 
-<h1 align="center">FaizApp</h1>
+<p align="center"><strong>Telegram-based field operations platform</strong></p>
+<p align="center">Registration · Photo reports · Team control · Operational statistics</p>
 
 <p align="center">
-  Digital platform for managing, controlling, and analyzing field operations.
-</p>
-
-<p align="center">
-  <strong>Telegram-based field operations management system</strong>
+  <img src="https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white" alt="Go">
+  <img src="https://img.shields.io/badge/PostgreSQL-ready-4169E1?logo=postgresql&logoColor=white" alt="PostgreSQL">
+  <img src="https://img.shields.io/badge/Telegram-bot-26A5E4?logo=telegram&logoColor=white" alt="Telegram">
+  <img src="https://img.shields.io/badge/status-active%20development-F2C94C" alt="Active development">
 </p>
 
 ---
 
-## Overview
+## What is FaizApp?
 
-**FaizApp** is an internal digital platform designed to manage, monitor, and analyze the daily field operations of sales representatives and merchandisers.
+FaizApp is an internal platform for managing the daily work of sales representatives, merchandisers, supervisors, dispatchers, and management teams.
 
-The system is being developed around real operational workflows within a distribution company. Its primary purpose is to reduce manual administrative work and provide a structured, auditable workflow for field reporting, merchandising control, plan tracking, comments, and operational statistics.
+The first version is intentionally focused: Telegram is the user interface, PostgreSQL is the source of truth, and human dispatchers remain responsible for visual decisions that require business judgment.
 
-The initial product is implemented as a **Telegram bot**. The architecture is intentionally designed so that the system can evolve into a broader platform with a web interface, analytical dashboards, trade-point auditing, planogram management, and AI-assisted photo analysis.
+> **Automate counting and routine work. Keep important decisions auditable and human-controlled.**
 
-### Core Principle
+## Product at a glance
 
-> **Automate counting and routine operations, but keep human judgment where visual assessment or business judgment is required.**
-
----
-
-## Product Objectives
-
-FaizApp is intended to:
-
-- Automate field-work reporting.
-- Automate counting of completed merchandising activities.
-- Track individual employee plans and actual performance.
-- Record violations, comments, and rejected submissions.
-- Prevent duplicate processing of the same photographs.
-- Send automated reminders and operational notifications.
-- Generate daily and monthly performance statistics.
-- Reduce manual dispatcher workload.
-- Gradually transition from fully manual verification to assisted and automated analysis.
-
----
-
-## Current Product Scope
-
-### Stage 1 — Pilot Telegram Bot
-
-The initial implementation targets a single Telegram group containing:
-
-- Sales representatives / merchandisers.
-- Dispatchers.
-- Management.
-
-At this stage, the bot **does not independently determine whether merchandising quality is acceptable**.
-
-The dispatcher remains responsible for visual review of submitted photographs and explicitly provides the verification result to the system.
-
-### Verification Results
-
-Each submitted work item can receive one of three outcomes:
-
-| Status | Meaning |
+| Area | Current state |
 |---|---|
-| `ACCEPTED` | Work is accepted and counted. |
-| `ACCEPTED_WITH_COMMENT` | Work is accepted and counted, but a comment is recorded. |
-| `REJECTED` | Work is not counted and is recorded as rejected. |
+| Telegram polling and commands | ✅ Implemented |
+| Environment configuration | ✅ Implemented |
+| PostgreSQL and migrations | ✅ Implemented |
+| User registration and approval | ✅ Implemented |
+| Roles, work groups, territories | ✅ Implemented |
+| Supervisor assignment | ✅ Implemented |
+| Telegram photo intake | ✅ Implemented |
+| SHA-256 photo hashing | ✅ Implemented |
+| Photo counting | ✅ Implemented |
+| Album buffering and worker pool | 🟡 Planned |
+| Duplicate-review workflow | 🟡 Planned |
+| Dispatcher verification | ⬜ Planned |
+| Plans, reminders, reports | ⬜ Planned |
 
-Business rules:
-
-- Accepted work contributes to employee performance.
-- Accepted work with a comment contributes to performance and increments the comment counter.
-- Rejected work does not contribute to completed work.
-- Rejected work increments rejection/comment statistics.
-- Rejected submissions should generate a notification for the corresponding employee explaining the reason for the discrepancy.
-
----
-
-## Photo Reporting
-
-At the initial stage, photograph verification is performed by a human dispatcher.
-
-FaizApp is responsible for the technical workflow around submitted media:
-
-1. Receive photographs from Telegram.
-2. Identify the sender.
-3. Store required photo metadata.
-4. Detect potential duplicate submissions.
-5. Associate photographs with a work/reporting event.
-6. Store the dispatcher's verification result.
-7. Store comments and rejection information.
-8. Include verified results in operational statistics.
-
-### Duplicate Detection
-
-The planned duplicate-detection mechanism uses:
-
-- SHA-256 hash of the file.
-- Available image metadata.
-- EXIF capture date/time when available.
-
-GPS and geolocation are **not part of the initial implementation**.
-
-Missing EXIF metadata must **not** be treated as proof that a photograph is old, duplicated, or invalid.
-
----
-
-## Users and Roles
-
-FaizApp uses a role-based access model.
-
-### Sales Representative / Merchandiser
-
-A field employee can:
-
-- Complete registration through Telegram.
-- Submit photo reports.
-- Receive verification results.
-- Receive notifications and reminders.
-- View relevant personal performance information.
-
-### Dispatcher
-
-A dispatcher has extended permissions to:
-
-- Review submitted work.
-- Accept or reject submissions.
-- Add comments.
-- Correct or confirm results.
-- View operational statistics.
-- Execute administrative commands.
-
-### Management
-
-Management consumes operational statistics and reports. During the early stages, some management reporting may continue to rely on Excel-based workflows.
-
-Administrative operations must not be available to ordinary users.
-
----
-
-## Registration
-
-User registration is performed through Telegram.
-
-The planned registration flow uses the user's Telegram contact to associate the Telegram identity with an internal employee record.
-
-The system stores the required user information in PostgreSQL and maintains the relationship between:
+## Current workflow
 
 ```text
-Telegram User
-      ↓
-Internal Employee
+Telegram user
+     │
+     ▼
+Telegram Bot API
+     │
+     ▼
+Long polling
+     │
+     ▼
+Telegram transport
+     │
+     ├── Registration and approval
+     ├── Role and group assignment
+     └── Photo reception
+             │
+             ▼
+        Service layer
+             │
+             ▼
+       PostgreSQL repository
 ```
 
-The exact registration workflow and required employee attributes will be implemented as part of the database and user-management stages.
+## What works today
 
----
+### Registration and approval
 
-## Plans and Performance
+Users register through Telegram by providing their full name and sharing their own Telegram contact. The application stores the request as pending and sends an approval workflow to the administrator.
 
-Each sales representative has an individual work plan.
+```text
+/start → Registration → Full name → Phone number → Admin decision
+                                                    │
+                                    ┌───────────────┴───────────────┐
+                                    ▼                               ▼
+                                  Approve                         Reject
+```
 
-A plan may contain:
+### Roles and operational structure
 
-- Daily target.
-- Monthly target.
+The current role catalog contains:
 
-A team leader's team-level plan is calculated as the sum of the plans assigned to their sales representatives.
+- Sales Representative / Merchandiser;
+- Supervisor;
+- Dispatcher;
+- Commercial Director;
+- Senior Supervisor.
 
-A separate personal plan for the team leader is not required during the initial stage.
+The **Senior Supervisor** role is already present as a structural role. Its special permissions will be implemented later together with the access-control layer.
 
-The system is expected to compare planned and actual performance and use the resulting data for reminders and reporting.
+### Work groups
 
----
+```text
+Horeca 1
+├── Horeca 1
+└── Horeca 2
 
-## Automated Operational Checks
+Horeca 2
+├── Horeca 3
+└── Horeca 4
 
-FaizApp is designed to execute scheduled checks during the working day.
+SM 1
+├── SM 2
+├── SM 3
+├── SM 5
+└── SM 6
 
-The initial planned schedule is:
+SM 2
+├── SM 1
+└── SM 4
+```
 
-| Time | Operation |
+Supervisors can be assigned to a work group. Sales representatives follow the configured assignment flow for their work group, territory, and SR code.
+
+### Photo intake
+
+The first photo-reporting foundation is implemented. For every received photo the system can:
+
+1. identify the Telegram sender;
+2. read the Telegram message ID and caption;
+3. download the highest-resolution photo variant;
+4. calculate a SHA-256 hash;
+5. save metadata to PostgreSQL;
+6. return the user's current photo count.
+
+```text
+Telegram photo → Download → SHA-256 → PostgreSQL → User photo count
+```
+
+The caption is stored for future analysis. It is not interpreted yet.
+
+## Photo verification roadmap
+
+The current implementation stores and counts photos. The next photo capabilities are planned in this order:
+
+1. collect photos from Telegram albums through `MediaGroupID`;
+2. add a bounded queue and worker pool for concurrent downloads;
+3. detect exact duplicates using stored SHA-256 hashes;
+4. later evaluate visually similar images with perceptual hashing;
+5. send possible duplicates to the dispatcher for a decision;
+6. store the verification result and notify the employee.
+
+Planned dispatcher decisions:
+
+| Result | Meaning |
 |---|---|
-| 10:30 | Performance check |
-| 12:00 | Performance check |
-| 15:00 | Performance check |
-| 16:00 | End-of-day summary |
+| `ACCEPTED` | The submission is accepted and counted. |
+| `ACCEPTED_WITH_COMMENT` | The submission is counted and a comment is recorded. |
+| `REJECTED` | The submission is not counted and the reason is recorded. |
 
-During the working day, the bot evaluates plan completion and sends reminders when required.
-
-At 16:00, the system generates the daily operational summary.
-
-The scheduling implementation is a planned capability and is not part of the minimal bot runtime yet.
-
----
-
-## Daily Reporting
-
-The dispatcher-facing daily report is expected to contain:
-
-- Completed merchandising activities.
-- Employee-level performance.
-- Plan completion.
-- Late or insufficient performance.
-- Number of comments.
-- Number of rejected submissions.
-
-Management reporting will additionally provide structured data that can be used to produce Excel reports.
-
-During the early implementation stages, part of the final reporting workflow may remain manual.
-
----
-
-## Monthly Statistics
-
-FaizApp is planned to provide monthly performance statistics including:
-
-- Plan completion.
-- Plan underperformance.
-- Highest-performing employees.
-- Lowest-performing employees.
-- Number of completed activities.
-- Number of rejected submissions.
-- Number of comments.
-
-The exact KPI definitions and reporting rules will be formalized as the business logic is implemented.
-
----
+Automated duplicate detection will assist the dispatcher; it will not silently replace business judgment.
 
 ## Architecture
 
-FaizApp is being developed in **Go** using a modular monolithic architecture.
+FaizApp is a modular monolith. The codebase is small by design and grows only when the next business capability requires it.
 
 ```text
 faizapp/
-├── cmd/
-│   └── bot/
-│       └── main.go
-│
+├── cmd/bot/                         # Application entry point
 ├── internal/
-│   ├── app/
-│   │   └── app.go
-│   │
-│   ├── config/
-│   │   └── config.go
-│   │
-│   ├── models/
-│   │   ├── user.go
-│   │   ├── plan.go
-│   │   ├── merch.go
-│   │   ├── photo.go
-│   │   ├── comment.go
-│   │   └── SRTerrytoriesInfo.go
-│   │
-│   ├── service/
-│   │   ├── userservice.go
-│   │   └── reference_service.go
-│   │
-│   ├── repository/
-│   │   └── postgres/
-│   │       ├── faizapp_postgres.go
-│   │       └── reference_data.go
-│   │
-│   ├── transport/
-│   │   └── telegram/
-│   │       └── handlers.go
-│   │
-│   └── middleware/
-│       └── middleware.go
-│
-├── migrations/
-│
-├── config/
-│   └── .env.example
-│
+│   ├── app/                         # Composition and startup
+│   ├── config/                      # Environment loading and validation
+│   ├── models/                      # Domain models and Telegram menus
+│   ├── polling/                     # Telegram update delivery
+│   ├── repository/postgres/         # PostgreSQL access
+│   ├── service/                     # Business logic
+│   ├── transport/telegram/          # Telegram handlers and state
+│   └── middleware/                  # Cross-cutting checks
+├── migrations/                      # Versioned database changes
+├── docs/                            # Project documentation
+├── .env.example                     # Safe configuration template
 ├── go.mod
-├── go.sum
-├── .gitignore
 └── README.md
 ```
 
-### Component Responsibilities
+### Dependency direction
 
-| Component | Responsibility |
-|---|---|
-| `cmd` | Application entry point. |
-| `app` | Application composition and startup. |
-| `config` | Environment loading, configuration construction, and validation. |
-| `models` | Application data models and Telegram menu definitions. |
-| `service` | Application and business logic. |
-| `repository` | Persistence and PostgreSQL access. |
-| `transport/telegram` | Telegram-specific handlers and transport logic. |
-| `middleware` | Cross-cutting checks before update processing. |
-| `migrations` | Version-controlled database schema changes. |
+```text
+cmd → app → polling / transport
+             │
+             ▼
+          services
+             │
+             ▼
+        repositories
+             │
+             ▼
+         PostgreSQL
+```
 
----
+Telegram-specific behavior stays in the transport layer. Reusable business rules belong in services. SQL and persistence details stay in repositories.
 
 ## Configuration
 
-Runtime configuration is supplied through environment variables.
+Runtime configuration is loaded from environment variables:
 
-Sensitive configuration must remain outside version control.
-
-Example:
-
-```text
+```env
 TGBOTAPI_TOKEN=
-BOT_MODE=
+BOT_MODE=polling
 
 POSTGRES_HOST=
 POSTGRES_PORT=
@@ -316,248 +210,146 @@ POSTGRES_PASSWORD=
 POSTGRES_DB=
 ```
 
-The repository contains an example configuration file, while the real `.env` file must remain local and ignored by Git.
+Use `.env.example` as a template. The real `.env` file and all credentials must remain local and ignored by Git.
 
-Configuration loading and validation are isolated in `internal/config`.
+## Local development
 
----
+### Requirements
 
-## Technology Stack
+- Go 1.24 or newer;
+- PostgreSQL;
+- a Telegram bot token;
+- applied database migrations.
 
-The current technical direction includes:
+### Run the project
 
-- **Go** — primary application language.
-- **Telegram Bot API** — initial user-facing transport.
-- **PostgreSQL** — primary persistent data store.
-- **Docker / Docker Compose** — local and deployment infrastructure where applicable.
-- **Git / GitHub** — source control and project management.
-- **Database migrations** — version-controlled schema evolution.
+```bash
+go mod download
+go test ./...
+go run ./cmd/bot
+```
 
-Additional libraries and infrastructure will be introduced only when required by the implementation.
+### Check changes
 
----
+```bash
+gofmt -w .
+git diff --check
+go test ./...
+```
 
-## Development Principles
+## Database
 
-### Separation of Responsibilities
+PostgreSQL is the persistent source of truth. Schema changes are introduced only through versioned migrations.
 
-Telegram transport, business logic, persistence, configuration, and application startup should remain independently organized.
+Current and planned entities include users, roles, work groups, territories, SR codes, photos, plans, comments, verification results, and operational statistics.
 
-### Explicit Business Logic
+Telegram handlers must not contain raw SQL.
 
-Business rules should be represented explicitly in application/domain logic rather than hidden inside Telegram handlers or database queries.
+## Roadmap
 
-### Human-Controlled Verification
+### Foundation — completed
 
-Automated systems should assist with repetitive technical operations without silently replacing business decisions that require human visual judgment.
+- [x] Telegram bot initialization and long polling.
+- [x] Environment configuration and validation.
+- [x] PostgreSQL connection pool.
+- [x] Versioned migrations.
+- [x] User registration through Telegram contacts.
+- [x] Administrator approval and rejection.
+- [x] Role selection through inline keyboards.
+- [x] Work groups and territories.
+- [x] Sales representative and supervisor assignment workflows.
 
-### Auditability
+### Photo reporting — in progress
 
-Important operational actions should be traceable, especially:
+- [x] Receive Telegram photos.
+- [x] Download photo files.
+- [x] Store sender and message metadata.
+- [x] Calculate SHA-256 hashes.
+- [x] Count photos by user.
+- [ ] Process albums as a single submission.
+- [ ] Add bounded concurrent processing.
+- [ ] Detect exact and potential duplicates.
+- [ ] Link photos to work/reporting events.
 
-- Verification results.
-- Rejections.
-- Comments.
-- Corrections.
-- User-role changes.
-- Relevant administrative actions.
+### Dispatcher verification — planned
 
-### Incremental Development
+- [ ] Accept a photo report.
+- [ ] Accept it with a comment.
+- [ ] Reject it with a reason.
+- [ ] Notify the corresponding employee.
+- [ ] Recalculate operational counters.
 
-The system is developed in small, verifiable stages. New infrastructure should not be introduced before it is required by the current stage.
+### Automation and reporting — planned
 
----
+- [ ] Daily and monthly plans.
+- [ ] Scheduled performance checks.
+- [ ] Employee reminders.
+- [ ] End-of-day summaries.
+- [ ] Dispatcher statistics.
+- [ ] Management reports and Excel-compatible exports.
 
-## Development Roadmap
+### Future platform capabilities
 
-### Stage 1 — Minimal Telegram Runtime
+- [ ] Web interface and personal dashboards.
+- [ ] Trade-point auditing.
+- [ ] Planogram management.
+- [ ] Advanced analytics.
+- [ ] AI-assisted photo analysis.
 
-- Telegram bot initialization.
-- Polling-based update processing.
-- `/start` interaction.
-- Basic handler structure.
-- Initial project architecture.
-
-### Stage 2 — Application Foundation and Access Workflows
-
-#### Stage 2.1 — Configuration — Completed
-
-- `.env` based configuration.
-- Telegram configuration.
-- PostgreSQL configuration model.
-- Configuration validation.
-- Centralized configuration loading.
-- Passing the resulting configuration into the application layer.
-
-#### Stage 2.2 — PostgreSQL Foundation — Completed
-
-- PostgreSQL connection.
-- Connection pool.
-- Database connectivity validation.
-- Migration infrastructure.
-- Initial database schema and versioned migrations.
-
-#### Stage 2.3 — User Registration and Approval — Completed
-
-- Telegram identity handling.
-- Contact-based registration.
-- Employee records.
-- Pending user persistence.
-- Administrator approval/rejection through Telegram inline buttons.
-- Role selection for approved users.
-- Administrator-only callback handling.
-
-#### Stage 2.4 — Territory and SR Assignment — Completed
-
-- Work groups and territories.
-- Brand categories and SR codes.
-- Available-code lookup by territory.
-- Sales representative workflow:
-
-  ```text
-  Role → Work group → Territory → SR code → Approve
-  ```
-
-- Supervisor workflow:
-
-  ```text
-  Role → Work group → Territory → Assign territory → Approve
-  ```
-
-- Transactional assignment of SR codes and supervisor territories.
-- Protection against assigning an occupied SR code or territory.
-- Service-layer tests and manual end-to-end testing of both workflows.
-
-#### Stage 2.5 — Core Domain
-
-Planned entities include:
-
-- Users / employees.
-- Plans.
-- Merchandising activities.
-- Photos.
-- Comments.
-- Verification results.
-
-#### Stage 2.6 — Photo Reporting
-
-- Telegram photo reception.
-- Photo persistence.
-- File hashing.
-- Duplicate detection.
-- Sender association.
-- Report/work association.
-
-#### Stage 2.7 — Dispatcher Verification
-
-- Accept.
-- Accept with comment.
-- Reject.
-- Dispatcher comments.
-- Employee notifications.
-- Corrected statistics.
-
-### Stage 3 — Operational Automation
-
-- Scheduled checks.
-- Reminders.
-- End-of-day reports.
-- Plan tracking.
-- Employee performance summaries.
-
-### Stage 4 — Reporting and Analytics
-
-- Daily reports.
-- Monthly statistics.
-- Management reporting.
-- Excel-compatible reporting workflows.
-- Historical performance analysis.
-
-### Stage 5 — Advanced Platform Capabilities
-
-Potential future capabilities:
-
-- Web application.
-- Personal dashboards.
-- Trade-point auditing.
-- Planogram management.
-- Advanced analytics.
-- AI-assisted photograph analysis.
-
-These capabilities are intentionally outside the initial implementation scope.
-
----
-
-## Current Development Status
-
-The project has completed the application foundation and the first administrative access workflows.
-
-Implemented:
-
-- Telegram polling bot and application startup.
-- Environment-based configuration with validation.
-- PostgreSQL connection pool and versioned migrations.
-- User registration through Telegram contact sharing.
-- Pending, approved, and rejected user states.
-- Administrator-only approval callbacks.
-- Role selection through inline keyboards.
-- Work-group and territory lookup from PostgreSQL.
-- Sales representative SR-code assignment.
-- Supervisor territory assignment.
-- Transactional persistence for approval and assignment operations.
-- Service-layer tests and manual end-to-end testing of both assignment workflows.
-- Protected `main` branch with Pull Request and CI requirements; changes are intended to flow through `develop`.
-
-The next major implementation target is the photo-reporting foundation: receiving Telegram photos, storing metadata, calculating file hashes, and preventing duplicate submissions.
-
-Not implemented yet:
-
-- Photo/report database tables and photo ingestion.
-- Duplicate detection in the production workflow.
-- Dispatcher verification of submitted photos.
-- Comments, rejection reasons, and report counters.
-- Plans, scheduled reminders, daily summaries, and monthly analytics.
-- Supervisor-specific management screens and reporting.
-
----
-
-## Security
-
-The following rules are mandatory:
+## Security rules
 
 - Never commit `.env` files.
-- Never commit Telegram bot tokens.
-- Never commit database passwords.
+- Never commit Telegram tokens or database passwords.
 - Never place production credentials in source code.
-- Keep `.env.example` free of real secrets.
-- Rotate credentials immediately if they are accidentally exposed.
+- Never log secrets.
+- Enforce administrative authorization on the server side.
+- Treat Telegram UI visibility as presentation, not authorization.
 
----
+## Git workflow
 
-## Repository Workflow
+Development changes are intended to flow through `develop` using focused feature branches and pull requests.
 
-The project uses Git and GitHub for source control and project management.
+```text
+feature branch → tests → pull request → CI → develop
+```
 
-The repository should maintain:
+Recommended checks before opening a pull request:
 
-- Clean, focused commits.
-- Meaningful commit messages.
-- Reviewable changes.
-- Version-controlled migrations.
-- No credentials or local runtime secrets.
+```bash
+gofmt -w .
+git diff --check
+go test ./...
+```
 
-GitHub Projects and Issues are used to track implementation stages, tasks, technical work, and progress.
+## Development principles
 
----
+- Keep transport, business logic, persistence, and startup responsibilities separate.
+- Prefer small, testable changes.
+- Keep important operational actions auditable.
+- Do not introduce infrastructure before it is needed.
+- Preserve original records behind derived statistics.
+- Use automation to assist people, not to hide business decisions.
 
-## Status
+## Current focus
+
+```text
+Photo intake
+    │
+    ├── Albums
+    ├── Queue and workers
+    ├── Duplicate detection
+    ├── Dispatcher review
+    └── Daily reporting
+```
+
+After this block is complete, the project can move to employee plans, scheduled reminders, and full operational statistics.
+
+## Project status
 
 **Active development**
 
-FaizApp is currently progressing from the minimal Telegram runtime toward its PostgreSQL and user-management foundation.
-
----
+The application foundation, user-management workflows, group assignments, and the first photo-reporting layer are implemented. The next major milestone is a reliable photo workflow with album handling, duplicate review, dispatcher verification, and daily reporting.
 
 ## License
 
-Internal project. No public license has been defined at this stage.
+Internal company project. No public license has been defined.
