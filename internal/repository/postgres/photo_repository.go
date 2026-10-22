@@ -2,11 +2,17 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
 
 	"github.com/MahmudovMZ/faizapp/internal/models"
+	"github.com/jackc/pgx/v5/pgconn"
+)
+
+var ErrDuplicatePhoto = errors.New(
+	"photo with this SHA-256 hash already exists",
 )
 
 func (r *FaizAppRepo) CreatePhoto(
@@ -38,9 +44,13 @@ func (r *FaizAppRepo) CreatePhoto(
 		photo.ReceivedAt,
 	)
 	if err != nil {
+		var pgErr *pgconn.PgError
+
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "uq_photos_sha256_hash" {
+			return fmt.Errorf("create photo: %w", ErrDuplicatePhoto)
+		}
 		return fmt.Errorf("create photo: %w", err)
 	}
-
 	return nil
 }
 
