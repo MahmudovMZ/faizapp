@@ -1,11 +1,15 @@
+-- Восстанавливаем старые территории
 INSERT INTO territories (name, work_group_id)
 SELECT territory_name, wg.id
 FROM (
-         VALUES ('СМ 5'), ('СМ 6')
+         VALUES
+             ('СМ 5'),
+             ('СМ 6')
      ) AS data(territory_name)
          JOIN work_groups wg ON wg.name = 'СМ'
     ON CONFLICT (name, work_group_id) DO NOTHING;
 
+-- Возвращаем старые коды
 UPDATE sr_codes
 SET territory_id = (
     SELECT t.id

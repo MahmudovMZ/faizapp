@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/MahmudovMZ/faizapp/internal/models"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,6 +23,9 @@ type Repository interface {
 	AssignSRCodeAndUpdate(ctx context.Context, tgID int64, status string, role *string, userID string, srCodeID int) error
 	AssignSVTerritoryAndUpdate(ctx context.Context, tgID int64, status string, role *string, superVisorID string, territoryID int) error
 	AssignSVWorkGroupAndUpdate(ctx context.Context, tgID int64, status string, role *string, supervisorID string, workGroupID int) error
+	CreatePhoto(ctx context.Context, photo *models.Photo) error
+	CountPhotosByUser(ctx context.Context, userID string) (int, error)
+	CountPhotosByDate(ctx context.Context, from time.Time, to time.Time) (int, error)
 }
 
 type FaizAppRepo struct {
