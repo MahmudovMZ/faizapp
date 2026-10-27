@@ -51,7 +51,7 @@ func TestPhotoRepository(t *testing.T) {
 		t.Fatalf("create test user: %v", err)
 	}
 
-	t.Cleanup(func() {
+	defer func() {
 		_, _ = pool.Exec(
 			ctx,
 			`DELETE FROM photos WHERE user_id = $1`,
@@ -63,7 +63,7 @@ func TestPhotoRepository(t *testing.T) {
 			`DELETE FROM users WHERE id = $1`,
 			userID,
 		)
-	})
+	}()
 
 	receivedAt := time.Now().UTC().Truncate(time.Microsecond)
 

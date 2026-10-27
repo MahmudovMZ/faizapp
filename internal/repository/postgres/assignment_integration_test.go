@@ -49,7 +49,7 @@ func TestAssignSRCodeAndUpdateRollback(t *testing.T) {
 		t.Fatalf("create test user: %v", err)
 	}
 
-	t.Cleanup(func() {
+	defer func() {
 		_, _ = pool.Exec(
 			ctx,
 			`DELETE FROM sr_assignments WHERE user_id = $1`,
@@ -60,7 +60,7 @@ func TestAssignSRCodeAndUpdateRollback(t *testing.T) {
 			`DELETE FROM users WHERE id = $1`,
 			userID,
 		)
-	})
+	}()
 
 	var srCodeID int
 
@@ -167,7 +167,7 @@ func TestAssignSVWorkGroupAndUpdate(t *testing.T) {
 		t.Fatalf("find free work group: %v", err)
 	}
 
-	t.Cleanup(func() {
+	defer func() {
 		_, _ = pool.Exec(
 			ctx,
 			`UPDATE work_groups SET supervisor_id = NULL WHERE id = $1`,
@@ -178,7 +178,7 @@ func TestAssignSVWorkGroupAndUpdate(t *testing.T) {
 			`DELETE FROM users WHERE id = $1`,
 			userID,
 		)
-	})
+	}()
 
 	role := "Супервайзер"
 
