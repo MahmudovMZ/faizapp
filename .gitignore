@@ -9,3 +9,7 @@
 # OS
 .DS_Store
 Thumbs.db
+
+# Local AI-agent instructions (keep out of Git)
+/AGENTS.md
+/docs/ai-agents/
