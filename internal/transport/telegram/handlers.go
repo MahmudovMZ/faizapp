@@ -75,7 +75,12 @@ func (h *Handler) BotHandler(
 	if len(update.Message.Photo) > 0 {
 		count, err := h.handlePhotoMessage(ctx, update.Message)
 		if err != nil {
+			if errors.Is(err, service.ErrDuplicatePhoto) {
+				h.send(chatID, "Это фото уже было отправлено ранее и не будет засчитано повторно.")
+				return
+			}
 			log.Println(err)
+			h.send(chatID, "Не удалось обработать фотографию. Попробуйте ещё раз.")
 			return
 		}
 		h.send(chatID, fmt.Sprintf("Received photos: %d", count))
