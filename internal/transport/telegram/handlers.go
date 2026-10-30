@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html"
 	"log"
 	"strconv"
 	"strings"
@@ -73,7 +74,7 @@ func (h *Handler) BotHandler(
 	tgID := update.Message.From.ID
 
 	if len(update.Message.Photo) > 0 {
-		count, err := h.handlePhotoMessage(ctx, update.Message)
+		result, err := h.handlePhotoMessage(ctx, update.Message)
 		if err != nil {
 			if errors.Is(err, service.ErrDuplicatePhoto) {
 				h.send(chatID, "Это фото уже было отправлено ранее и не будет засчитано повторно.")
@@ -83,7 +84,11 @@ func (h *Handler) BotHandler(
 			h.send(chatID, "Не удалось обработать фотографию. Попробуйте ещё раз.")
 			return
 		}
-		h.send(chatID, fmt.Sprintf("Received photos: %d", count))
+		if result.NewSender {
+			h.mentionNewUser(update.Message)
+		} else {
+			h.send(chatID, fmt.Sprintf("Received photos: %d", result.Count))
+		}
 		return
 	}
 
@@ -91,7 +96,7 @@ func (h *Handler) BotHandler(
 
 	switch stage {
 	case "":
-		if text == "/start" {
+		if text == "/start" || text == "/start registration" {
 			h.send(chatID, "Вы обратились в FaizApp.")
 			h.send(chatID, "Чем я могу вам помочь?")
 
@@ -120,7 +125,12 @@ func (h *Handler) BotHandler(
 
 			switch user.Status {
 			case "pending":
-				h.send(chatID, "Ваша заявка ожидает подтверждения администратора.")
+				if user.Phone == nil {
+					h.initRegistration(chatID)
+				} else {
+					h.send(chatID, "Ваша заявка ожидает подтверждения администратора.")
+				}
+
 			case "approved":
 				if user.Role == nil {
 					h.send(
@@ -151,11 +161,7 @@ func (h *Handler) BotHandler(
 		}
 
 		if text == "Регистрация" {
-			h.initUserData(chatID)
-			h.setBotState(chatID, models.STATE_STARTING_REGISTRATION)
-			h.setUserState(chatID, models.STATE_WAITING_NAME)
-			h.removeKeyboard(chatID, "Начата процедура регистрации.")
-			h.send(chatID, "Введите ваше полное имя.")
+			h.initRegistration(chatID)
 		}
 
 	case models.STATE_STARTING_REGISTRATION:
@@ -855,4 +861,32 @@ func isOwnTelegramContact(contact *tgbotapi.Contact, tgID int64) bool {
 	}
 
 	return contact.UserID == tgID
+}
+
+func (h *Handler) mentionNewUser(msg *tgbotapi.Message) {
+	chatID := msg.Chat.ID
+	messageID := msg.MessageID
+	readerID := msg.From.ID
+	name := html.EscapeString(strings.TrimSpace(msg.From.FirstName))
+
+	mention := fmt.Sprintf(`<a href="tg://user?id=%d">%s</a>`, readerID, name)
+	link := fmt.Sprintf("https://t.me/%s?start=registration", h.TelegramBot.Self.UserName)
+	text := fmt.Sprintf("Уважаемый %s! Пройдите процедуру регистрации по ссылке %s", mention, link)
+
+	reply := tgbotapi.NewMessage(chatID, text)
+	reply.ParseMode = tgbotapi.ModeHTML
+
+	reply.ReplyToMessageID = messageID
+
+	if _, err := h.TelegramBot.Send(reply); err != nil {
+		log.Println("failed to send reply:", err)
+	}
+}
+
+func (h *Handler) initRegistration(chatID int64) {
+	h.initUserData(chatID)
+	h.setBotState(chatID, models.STATE_STARTING_REGISTRATION)
+	h.setUserState(chatID, models.STATE_WAITING_NAME)
+	h.removeKeyboard(chatID, "Начата процедура регистрации.")
+	h.send(chatID, "Введите ваше полное имя.")
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/MahmudovMZ/faizapp/internal/models"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -26,6 +27,8 @@ type Repository interface {
 	CreatePhoto(ctx context.Context, photo *models.Photo) error
 	CountPhotosByUser(ctx context.Context, userID string) (int, error)
 	CountPhotosByDate(ctx context.Context, from time.Time, to time.Time) (int, error)
+	CreatePendingUser(ctx context.Context, tgID int64, fullName string) (*models.User, error)
+	UpdateUserContact(ctx context.Context, tgID int64, fullName string, phone string) error
 }
 
 type FaizAppRepo struct {
@@ -350,4 +353,37 @@ func (r *FaizAppRepo) AssignSVWorkGroupAndUpdate(
 	}
 
 	return tx.Commit(ctx)
+}
+
+func (r *FaizAppRepo) CreatePendingUser(ctx context.Context, tgID int64, fullName string) (*models.User, error) {
+	log.Println("[REPOSITORY] creating pending user")
+
+	query := `INSERT INTO users (tg_id, full_name) VALUES ($1, $2)
+			  ON CONFLICT (tg_id) DO UPDATE SET tg_id = EXCLUDED.tg_id
+			  RETURNING id, tg_id, full_name, phone, role, status, created_at;`
+
+	var user models.User
+
+	row := r.Pool.QueryRow(ctx, query, tgID, fullName)
+	err := row.Scan(&user.ID, &user.TgID, &user.FullName, &user.Phone, &user.Role, &user.Status, &user.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("create pending user: %w", err)
+	}
+	return &user, nil
+}
+
+func (r *FaizAppRepo) UpdateUserContact(ctx context.Context, tgID int64, fullName string, phone string) error {
+	log.Println("[REPOSITORY] updating user contact")
+
+	query := `UPDATE users SET full_name = $2, phone = $3 WHERE tg_id = $1 AND status = 'pending';`
+
+	tag, err := r.Pool.Exec(ctx, query, tgID, fullName, phone)
+	if err != nil {
+		return fmt.Errorf("update user contact: %w", err)
+	}
+
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
 }

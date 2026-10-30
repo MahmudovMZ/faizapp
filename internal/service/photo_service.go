@@ -8,6 +8,7 @@ import (
 
 	"github.com/MahmudovMZ/faizapp/internal/models"
 	"github.com/MahmudovMZ/faizapp/internal/repository/postgres"
+	"github.com/jackc/pgx/v5"
 )
 
 type PhotoService struct {
@@ -16,17 +17,32 @@ type PhotoService struct {
 
 var ErrDuplicatePhoto = errors.New("photo already exists")
 
+type SavePhotoResult struct {
+	Count     int
+	NewSender bool
+}
+
 func NewPhotoService(repo postgres.Repository) *PhotoService {
 	return &PhotoService{repo: repo}
 }
 
-func (s *PhotoService) SavePhoto(ctx context.Context, tgId int64, tgMsgId int, data []byte, caption string, receivedAt time.Time) (int, error) {
+func (s *PhotoService) SavePhoto(ctx context.Context, tgId int64, tgMsgId int, data []byte, caption string, receivedAt time.Time, fullName string) (SavePhotoResult, error) {
+	isNew := false
 	user, err := s.repo.GetUserByTgID(ctx, tgId)
 	if err != nil {
-		return 0, fmt.Errorf("[SERVICE] get user by telegram ID: %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			isNew = true
+			user, err = s.repo.CreatePendingUser(ctx, tgId, fullName)
+			if err != nil {
+				return SavePhotoResult{}, fmt.Errorf("[SERVICE] create pending user: %w", err)
+			}
+		} else {
+			return SavePhotoResult{}, fmt.Errorf("[SERVICE] get user by telegram ID: %w", err)
+		}
+
 	}
 	if user == nil {
-		return 0, errors.New("[SERVICE] user not found")
+		return SavePhotoResult{}, errors.New("[SERVICE] user not found")
 	}
 
 	hash := CalcSHA256(data)
@@ -42,15 +58,18 @@ func (s *PhotoService) SavePhoto(ctx context.Context, tgId int64, tgMsgId int, d
 	err = s.repo.CreatePhoto(ctx, photo)
 	if err != nil {
 		if errors.Is(err, postgres.ErrDuplicatePhoto) {
-			return 0, fmt.Errorf("[SERVICE] photo already exists: %w", ErrDuplicatePhoto)
+			return SavePhotoResult{}, fmt.Errorf("[SERVICE] photo already exists: %w", ErrDuplicatePhoto)
 		}
-		return 0, fmt.Errorf("[SERVICE] saving photo: %w", err)
+		return SavePhotoResult{}, fmt.Errorf("[SERVICE] saving photo: %w", err)
 	}
 
 	num, err := s.repo.CountPhotosByUser(ctx, user.ID)
 	if err != nil {
-		return 0, fmt.Errorf("[SERVICE] count photo: %w", err)
+		return SavePhotoResult{}, fmt.Errorf("[SERVICE] count photo: %w", err)
 	}
 
-	return num, nil
+	return SavePhotoResult{
+		Count:     num,
+		NewSender: isNew,
+	}, nil
 }

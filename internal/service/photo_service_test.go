@@ -8,6 +8,7 @@ import (
 
 	"github.com/MahmudovMZ/faizapp/internal/models"
 	"github.com/MahmudovMZ/faizapp/internal/repository/postgres"
+	"github.com/jackc/pgx/v5"
 )
 
 func TestCalculateSHA256(t *testing.T) {
@@ -58,20 +59,29 @@ func TestSavePhotoSuccess(t *testing.T) {
 
 	service := NewPhotoService(repo)
 
-	count, err := service.SavePhoto(
+	result, err := service.SavePhoto(
 		context.Background(),
 		123456789,
 		10,
 		[]byte("photo data"),
 		"",
 		time.Now(),
+		"Test User",
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if count != 5 {
-		t.Fatalf("count = %d, want 5", count)
+	if result.Count != 5 {
+		t.Fatalf("count = %d, want 5", result.Count)
+	}
+
+	if result.NewSender {
+		t.Fatal("NewSender = true, want false for an existing user")
+	}
+
+	if repo.pendingCalled {
+		t.Fatal("CreatePendingUser must not be called for an existing user")
 	}
 }
 
@@ -87,6 +97,7 @@ func TestSavePhotoUserNotFound(t *testing.T) {
 		[]byte("photo data"),
 		"",
 		time.Now(),
+		"Test User",
 	)
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -112,6 +123,7 @@ func TestSavePhotoCreateError(t *testing.T) {
 		[]byte("photo data"),
 		"",
 		time.Now(),
+		"Test User",
 	)
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("error = %v, want %v", err, expectedErr)
@@ -137,11 +149,13 @@ func TestSavePhotoCountError(t *testing.T) {
 		[]byte("photo data"),
 		"",
 		time.Now(),
+		"Test User",
 	)
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("error = %v, want %v", err, expectedErr)
 	}
 }
+
 func TestSavePhotoDuplicate(t *testing.T) {
 	repo := &userServiceRepoMock{
 		user: &models.User{
@@ -159,6 +173,7 @@ func TestSavePhotoDuplicate(t *testing.T) {
 		[]byte("photo data"),
 		"",
 		time.Now(),
+		"Test User",
 	)
 
 	if !errors.Is(err, ErrDuplicatePhoto) {
@@ -166,5 +181,102 @@ func TestSavePhotoDuplicate(t *testing.T) {
 			"error = %v, want ErrDuplicatePhoto",
 			err,
 		)
+	}
+}
+
+func TestSavePhotoUnknownSenderCreatesPendingUser(t *testing.T) {
+	repo := &userServiceRepoMock{
+		getErr: pgx.ErrNoRows,
+		pendingUser: &models.User{
+			ID:     "user-new",
+			Status: "pending",
+		},
+		photoCount: 1,
+	}
+
+	service := NewPhotoService(repo)
+
+	result, err := service.SavePhoto(
+		context.Background(),
+		123456789,
+		10,
+		[]byte("photo data"),
+		"",
+		time.Now(),
+		"Test User",
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !repo.pendingCalled {
+		t.Fatal("expected CreatePendingUser to be called")
+	}
+
+	if repo.pendingTgID != 123456789 {
+		t.Fatalf("pending tg_id = %d, want 123456789", repo.pendingTgID)
+	}
+
+	if repo.pendingFullName != "Test User" {
+		t.Fatalf("pending full name = %q, want %q", repo.pendingFullName, "Test User")
+	}
+
+	if result.Count != 1 {
+		t.Fatalf("count = %d, want 1", result.Count)
+	}
+
+	if !result.NewSender {
+		t.Fatal("NewSender = false, want true for an unknown sender")
+	}
+}
+
+func TestSavePhotoUnknownSenderCreateError(t *testing.T) {
+	expectedErr := errors.New("create pending user error")
+
+	repo := &userServiceRepoMock{
+		getErr:     pgx.ErrNoRows,
+		pendingErr: expectedErr,
+	}
+
+	service := NewPhotoService(repo)
+
+	_, err := service.SavePhoto(
+		context.Background(),
+		123456789,
+		10,
+		[]byte("photo data"),
+		"",
+		time.Now(),
+		"Test User",
+	)
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("error = %v, want %v", err, expectedErr)
+	}
+}
+
+func TestSavePhotoGetUserError(t *testing.T) {
+	expectedErr := errors.New("database is down")
+
+	repo := &userServiceRepoMock{
+		getErr: expectedErr,
+	}
+
+	service := NewPhotoService(repo)
+
+	_, err := service.SavePhoto(
+		context.Background(),
+		123456789,
+		10,
+		[]byte("photo data"),
+		"",
+		time.Now(),
+		"Test User",
+	)
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("error = %v, want %v", err, expectedErr)
+	}
+
+	if repo.pendingCalled {
+		t.Fatal("CreatePendingUser must not be called on other errors")
 	}
 }
