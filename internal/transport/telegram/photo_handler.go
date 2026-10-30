@@ -7,21 +7,23 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/MahmudovMZ/faizapp/internal/service"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-func (h *Handler) handlePhotoMessage(ctx context.Context, msg *tgbotapi.Message) (int, error) {
+func (h *Handler) handlePhotoMessage(ctx context.Context, msg *tgbotapi.Message) (service.SavePhotoResult, error) {
 	if msg == nil || msg.From == nil {
-		return 0, errors.New("no message from user")
+		return service.SavePhotoResult{}, errors.New("no message from user")
 	}
 	tgUserID := msg.From.ID
 	tgMessageID := msg.MessageID
 	caption := msg.Caption
 
 	if len(msg.Photo) == 0 {
-		return 0, errors.New("[HANDLER] photo not found")
+		return service.SavePhotoResult{}, errors.New("[HANDLER] photo not found")
 	}
 	photoSize := msg.Photo[len(msg.Photo)-1]
 	receivedAt := time.Unix(int64(msg.Date), 0)
@@ -29,14 +31,16 @@ func (h *Handler) handlePhotoMessage(ctx context.Context, msg *tgbotapi.Message)
 
 	data, err := h.downloadTelegramFile(ctx, fileID)
 	if err != nil {
-		return 0, fmt.Errorf("[HANDLER] download telegram file failed: %w", err)
+		return service.SavePhotoResult{}, fmt.Errorf("[HANDLER] download telegram file failed: %w", err)
 	}
 
-	photoCounter, err := h.PhotoService.SavePhoto(ctx, tgUserID, tgMessageID, data, caption, receivedAt)
+	fullName := fmt.Sprintf("%s %s", strings.TrimSpace(msg.From.FirstName), strings.TrimSpace(msg.From.LastName))
+
+	result, err := h.PhotoService.SavePhoto(ctx, tgUserID, tgMessageID, data, caption, receivedAt, strings.TrimSpace(fullName))
 	if err != nil {
-		return 0, fmt.Errorf("[HANDLER] save photo failed: %w", err)
+		return service.SavePhotoResult{}, fmt.Errorf("[HANDLER] save photo failed: %w", err)
 	}
-	return photoCounter, nil
+	return result, nil
 }
 
 func (h *Handler) downloadTelegramFile(ctx context.Context, fileID string) ([]byte, error) {

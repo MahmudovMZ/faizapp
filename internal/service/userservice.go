@@ -30,11 +30,20 @@ func (u *UserService) GetUserByTgID(ctx context.Context, tgID int64) (*models.Us
 }
 
 func (u *UserService) CreateUser(ctx context.Context, user *models.User) error {
-	err := u.repo.CreateUser(ctx, user)
-	if err != nil {
-		return err
+	phone := ""
+	if user.Phone != nil {
+		phone = *user.Phone
 	}
-	return nil
+	err := u.repo.UpdateUserContact(ctx, user.TgID, user.FullName, phone)
+	if err == nil {
+		return nil
+	}
+
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("[SERVICE] update user contact: %w", err)
+	}
+
+	return u.repo.CreateUser(ctx, user)
 }
 func (u *UserService) ApproveUser(ctx context.Context, tgID int64, role string) error {
 	role = strings.TrimSpace(role)

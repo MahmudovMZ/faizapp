@@ -71,7 +71,12 @@ func (r *FaizAppRepo) CountPhotosByUser(ctx context.Context, userID string) (int
 func (r *FaizAppRepo) CountPhotosByDate(ctx context.Context, from time.Time, to time.Time) (int, error) {
 	log.Println("[REPOSITORY] counting photos by date")
 
-	query := `SELECT COUNT(*) FROM photos WHERE received_at >= $1 AND received_at < $2`
+	query := `SELECT COUNT(*)
+				FROM photos p
+				JOIN users u ON u.id = p.user_id
+				WHERE u.status = 'approved'
+				AND p.received_at >= $1
+				AND p.received_at < $2`
 	var count int
 	row := r.Pool.QueryRow(ctx, query, from, to)
 	err := row.Scan(&count)

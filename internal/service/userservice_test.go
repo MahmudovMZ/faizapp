@@ -15,6 +15,7 @@ type userServiceRepoMock struct {
 	getErr       error
 	getByIDErr   error
 	createErr    error
+	createCalled bool
 	updateErr    error
 	assignErr    error
 	updateCalled bool
@@ -44,13 +45,39 @@ type userServiceRepoMock struct {
 	photoErr      error
 	photoCount    int
 	photoCountErr error
+
+	pendingUser     *models.User
+	pendingErr      error
+	pendingCalled   bool
+	pendingTgID     int64
+	pendingFullName string
+
+	contactErr      error
+	contactCalled   bool
+	contactTgID     int64
+	contactFullName string
+	contactPhone    string
 }
 
 func (m *userServiceRepoMock) CreateUser(
 	_ context.Context,
 	_ *models.User,
 ) error {
+	m.createCalled = true
+
 	return m.createErr
+}
+
+func (m *userServiceRepoMock) CreatePendingUser(
+	_ context.Context,
+	tgID int64,
+	fullName string,
+) (*models.User, error) {
+	m.pendingCalled = true
+	m.pendingTgID = tgID
+	m.pendingFullName = fullName
+
+	return m.pendingUser, m.pendingErr
 }
 
 func (m *userServiceRepoMock) GetUserByTgID(
@@ -159,13 +186,74 @@ func TestGetUserByTgIDNotFound(t *testing.T) {
 
 func TestCreateUserRepositoryError(t *testing.T) {
 	expectedErr := errors.New("database error")
-	repo := &userServiceRepoMock{createErr: expectedErr}
+	repo := &userServiceRepoMock{
+		contactErr: pgx.ErrNoRows,
+		createErr:  expectedErr,
+	}
 	service := NewUserService(repo)
 
 	err := service.CreateUser(context.Background(), &models.User{})
 
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("error = %v, want %v", err, expectedErr)
+	}
+
+	if !repo.createCalled {
+		t.Fatal("expected CreateUser to be called when no pending user exists")
+	}
+}
+
+func TestCreateUserUpdatesPendingUser(t *testing.T) {
+	repo := &userServiceRepoMock{}
+	service := NewUserService(repo)
+
+	phone := "+992900000001"
+	user := &models.User{
+		TgID:     123456789,
+		FullName: "Registered Name",
+		Phone:    &phone,
+	}
+
+	err := service.CreateUser(context.Background(), user)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !repo.contactCalled {
+		t.Fatal("expected UpdateUserContact to be called")
+	}
+
+	if repo.contactTgID != 123456789 ||
+		repo.contactFullName != "Registered Name" ||
+		repo.contactPhone != "+992900000001" {
+		t.Fatalf(
+			"contact = (%d, %q, %q), want (123456789, %q, %q)",
+			repo.contactTgID,
+			repo.contactFullName,
+			repo.contactPhone,
+			"Registered Name",
+			"+992900000001",
+		)
+	}
+
+	if repo.createCalled {
+		t.Fatal("CreateUser must not be called when the pending user was updated")
+	}
+}
+
+func TestCreateUserUpdateContactError(t *testing.T) {
+	expectedErr := errors.New("database is down")
+	repo := &userServiceRepoMock{contactErr: expectedErr}
+	service := NewUserService(repo)
+
+	err := service.CreateUser(context.Background(), &models.User{})
+
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("error = %v, want %v", err, expectedErr)
+	}
+
+	if repo.createCalled {
+		t.Fatal("CreateUser must not be called on other update errors")
 	}
 }
 
@@ -539,4 +627,18 @@ func TestAssignSVWorkGroupAndUpdateRepositoryError(t *testing.T) {
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("error = %v, want %v", err, expectedErr)
 	}
+}
+
+func (m *userServiceRepoMock) UpdateUserContact(
+	_ context.Context,
+	tgID int64,
+	fullName string,
+	phone string,
+) error {
+	m.contactCalled = true
+	m.contactTgID = tgID
+	m.contactFullName = fullName
+	m.contactPhone = phone
+
+	return m.contactErr
 }
