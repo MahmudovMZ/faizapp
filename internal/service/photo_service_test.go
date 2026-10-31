@@ -228,6 +228,10 @@ func TestSavePhotoUnknownSenderCreatesPendingUser(t *testing.T) {
 	if !result.NewSender {
 		t.Fatal("NewSender = false, want true for an unknown sender")
 	}
+
+	if result.Counted {
+		t.Fatal("Counted = true, want false for a user without a role")
+	}
 }
 
 func TestSavePhotoUnknownSenderCreateError(t *testing.T) {
@@ -278,5 +282,55 @@ func TestSavePhotoGetUserError(t *testing.T) {
 
 	if repo.pendingCalled {
 		t.Fatal("CreatePendingUser must not be called on other errors")
+	}
+}
+
+func TestSavePhotoCountedByRole(t *testing.T) {
+	salesRep := models.RoleSalesRep
+	supervisor := models.RoleSupervisor
+	dispatcher := models.RoleDispatcher
+	seniorSupervisor := models.RoleSeniorSupervisor
+
+	tests := []struct {
+		name string
+		role *string
+		want bool
+	}{
+		{name: "sales representative", role: &salesRep, want: true},
+		{name: "supervisor", role: &supervisor, want: true},
+		{name: "dispatcher", role: &dispatcher, want: false},
+		{name: "senior supervisor", role: &seniorSupervisor, want: false},
+		{name: "no role yet", role: nil, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &userServiceRepoMock{
+				user: &models.User{
+					ID:   "user-1",
+					Role: tt.role,
+				},
+				photoCount: 3,
+			}
+
+			service := NewPhotoService(repo)
+
+			result, err := service.SavePhoto(
+				context.Background(),
+				123456789,
+				10,
+				[]byte("photo data"),
+				"",
+				time.Now(),
+				"Test User",
+			)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if result.Counted != tt.want {
+				t.Fatalf("Counted = %v, want %v", result.Counted, tt.want)
+			}
+		})
 	}
 }

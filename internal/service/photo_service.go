@@ -19,6 +19,7 @@ var ErrDuplicatePhoto = errors.New("photo already exists")
 
 type SavePhotoResult struct {
 	Count     int
+	Counted   bool
 	NewSender bool
 }
 
@@ -70,6 +71,14 @@ func (s *PhotoService) SavePhoto(ctx context.Context, tgId int64, tgMsgId int, d
 
 	return SavePhotoResult{
 		Count:     num,
+		Counted:   isRoleCounted(user.Role),
 		NewSender: isNew,
 	}, nil
+}
+
+func isRoleCounted(role *string) bool {
+	if role == nil {
+		return false
+	}
+	return *role == models.RoleSalesRep || *role == models.RoleSupervisor
 }

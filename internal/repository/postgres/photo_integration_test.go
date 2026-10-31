@@ -41,12 +41,13 @@ func TestPhotoRepository(t *testing.T) {
 	err = pool.QueryRow(
 		ctx,
 		`
-		INSERT INTO users (tg_id, full_name, status)
-		VALUES ($1, $2, 'approved')
+		INSERT INTO users (tg_id, full_name, status, role)
+		VALUES ($1, $2, 'approved', $3)
 		RETURNING id
 		`,
 		tgID,
 		"Photo Integration User",
+		models.RoleSalesRep,
 	).Scan(&userID)
 	if err != nil {
 		t.Fatalf("create test user: %v", err)
@@ -197,7 +198,7 @@ func TestPhotoRepositoryDuplicateHash(t *testing.T) {
 	}
 }
 
-func TestCountPhotosByDateApprovedOnly(t *testing.T) {
+func TestCountPhotosByDateCountedRoles(t *testing.T) {
 	dbURL := os.Getenv("TEST_DATABASE_URL")
 	if dbURL == "" {
 		t.Skip("TEST_DATABASE_URL is not set")
@@ -218,37 +219,46 @@ func TestCountPhotosByDateApprovedOnly(t *testing.T) {
 
 	repo := NewFaizAppRepo(pool)
 
-	approvedTgID := randomTestTgID()
-	pendingTgID := approvedTgID + 1
+	salesRepTgID := randomTestTgID()
+	dispatcherTgID := salesRepTgID + 1
+	pendingTgID := salesRepTgID + 2
+	tgIDs := []int64{salesRepTgID, dispatcherTgID, pendingTgID}
 
 	defer func() {
 		_, _ = pool.Exec(
 			ctx,
 			`DELETE FROM photos WHERE telegram_user_id = ANY($1)`,
-			[]int64{approvedTgID, pendingTgID},
+			tgIDs,
 		)
 
 		_, _ = pool.Exec(
 			ctx,
 			`DELETE FROM users WHERE tg_id = ANY($1)`,
-			[]int64{approvedTgID, pendingTgID},
+			tgIDs,
 		)
 	}()
 
-	var approvedID string
-	err = pool.QueryRow(
-		ctx,
-		`
-		INSERT INTO users (tg_id, full_name, status)
-		VALUES ($1, $2, 'approved')
-		RETURNING id
-		`,
-		approvedTgID,
-		"Approved Count User",
-	).Scan(&approvedID)
-	if err != nil {
-		t.Fatalf("create approved user: %v", err)
+	createUser := func(tgID int64, fullName string, role string) string {
+		var id string
+		err := pool.QueryRow(
+			ctx,
+			`
+			INSERT INTO users (tg_id, full_name, status, role)
+			VALUES ($1, $2, 'approved', $3)
+			RETURNING id
+			`,
+			tgID,
+			fullName,
+			role,
+		).Scan(&id)
+		if err != nil {
+			t.Fatalf("create user %q: %v", fullName, err)
+		}
+		return id
 	}
+
+	salesRepID := createUser(salesRepTgID, "Sales Rep Count User", models.RoleSalesRep)
+	dispatcherID := createUser(dispatcherTgID, "Dispatcher Count User", models.RoleDispatcher)
 
 	pending, err := repo.CreatePendingUser(ctx, pendingTgID, "Pending Count User")
 	if err != nil {
@@ -257,28 +267,27 @@ func TestCountPhotosByDateApprovedOnly(t *testing.T) {
 
 	// A fixed day far in the past keeps this window free of other test rows.
 	receivedAt := time.Date(2001, 1, 1, 12, 0, 0, 0, time.UTC).
-		Add(time.Duration(approvedTgID%1_000_000) * time.Second)
+		Add(time.Duration(salesRepTgID%1_000_000) * time.Second)
 	from := receivedAt.Add(-time.Minute)
 	to := receivedAt.Add(time.Minute)
 
-	photos := []*models.Photo{
-		{
-			UserID:            approvedID,
-			TelegramUserID:    approvedTgID,
-			TelegramMessageID: 3001,
-			Sha256Hash:        fmt.Sprintf("count-approved-%d", approvedTgID),
-			ReceivedAt:        receivedAt,
-		},
-		{
-			UserID:            pending.ID,
-			TelegramUserID:    pendingTgID,
-			TelegramMessageID: 3002,
-			Sha256Hash:        fmt.Sprintf("count-pending-%d", pendingTgID),
-			ReceivedAt:        receivedAt,
-		},
+	senders := []struct {
+		userID string
+		tgID   int64
+	}{
+		{salesRepID, salesRepTgID},
+		{dispatcherID, dispatcherTgID},
+		{pending.ID, pendingTgID},
 	}
 
-	for _, photo := range photos {
+	for i, sender := range senders {
+		photo := &models.Photo{
+			UserID:            sender.userID,
+			TelegramUserID:    sender.tgID,
+			TelegramMessageID: 3001 + i,
+			Sha256Hash:        fmt.Sprintf("count-role-%d", sender.tgID),
+			ReceivedAt:        receivedAt,
+		}
 		if err := repo.CreatePhoto(ctx, photo); err != nil {
 			t.Fatalf("create photo: %v", err)
 		}
@@ -289,23 +298,24 @@ func TestCountPhotosByDateApprovedOnly(t *testing.T) {
 		t.Fatalf("count photos by date: %v", err)
 	}
 	if count != 1 {
-		t.Fatalf("count before approval = %d, want 1", count)
+		t.Fatalf("count before role assignment = %d, want 1 (sales rep only)", count)
 	}
 
 	_, err = pool.Exec(
 		ctx,
-		`UPDATE users SET status = 'approved' WHERE tg_id = $1`,
+		`UPDATE users SET status = 'approved', role = $2 WHERE tg_id = $1`,
 		pendingTgID,
+		models.RoleSupervisor,
 	)
 	if err != nil {
-		t.Fatalf("approve pending user: %v", err)
+		t.Fatalf("assign supervisor role: %v", err)
 	}
 
 	count, err = repo.CountPhotosByDate(ctx, from, to)
 	if err != nil {
-		t.Fatalf("count photos by date after approval: %v", err)
+		t.Fatalf("count photos by date after role assignment: %v", err)
 	}
 	if count != 2 {
-		t.Fatalf("count after approval = %d, want 2", count)
+		t.Fatalf("count after role assignment = %d, want 2", count)
 	}
 }
