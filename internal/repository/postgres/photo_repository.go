@@ -74,11 +74,11 @@ func (r *FaizAppRepo) CountPhotosByDate(ctx context.Context, from time.Time, to 
 	query := `SELECT COUNT(*)
 				FROM photos p
 				JOIN users u ON u.id = p.user_id
-				WHERE u.status = 'approved'
+				WHERE u.role IN ($3, $4)
 				AND p.received_at >= $1
 				AND p.received_at < $2`
 	var count int
-	row := r.Pool.QueryRow(ctx, query, from, to)
+	row := r.Pool.QueryRow(ctx, query, from, to, models.RoleSalesRep, models.RoleSupervisor)
 	err := row.Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("count photos by date: %w", err)

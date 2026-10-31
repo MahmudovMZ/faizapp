@@ -86,7 +86,7 @@ func (h *Handler) BotHandler(
 		}
 		if result.NewSender {
 			h.mentionNewUser(update.Message)
-		} else {
+		} else if result.Counted {
 			h.send(chatID, fmt.Sprintf("Received photos: %d", result.Count))
 		}
 		return
