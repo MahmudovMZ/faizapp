@@ -92,14 +92,14 @@ func (u *UserService) AssignSRCode(ctx context.Context, userID string, srCodeID 
 	if user.Status != "approved" {
 		return errors.New("user is not approved")
 	}
-	if user.Role == nil || *user.Role != "Торговый представитель" {
+	if user.Role == nil || *user.Role != models.RoleSalesRep {
 		return errors.New("user is not a sales representative")
 	}
 	return u.repo.AssignSRCode(ctx, userID, srCodeID)
 }
 
 func (u *UserService) AssignSRCodeAndApprove(ctx context.Context, userID string, srCodeID int, tgID int64) error {
-	role := "Торговый Представитель"
+	role := models.RoleSalesRep
 	status := "approved"
 	user, err := u.GetUserByID(ctx, userID)
 	if err != nil {
@@ -115,7 +115,7 @@ func (u *UserService) AssignSRCodeAndApprove(ctx context.Context, userID string,
 	return nil
 }
 func (u *UserService) AssignSVTerritoryAndUpdate(ctx context.Context, userID string, territoryID int, tgID int64) error {
-	role := "Супервайзер"
+	role := models.RoleSupervisor
 	status := "approved"
 	user, err := u.GetUserByID(ctx, userID)
 	if err != nil {
@@ -132,7 +132,7 @@ func (u *UserService) AssignSVTerritoryAndUpdate(ctx context.Context, userID str
 }
 
 func (u *UserService) AssignSVWorkGroupAndUpdate(ctx context.Context, userID string, workGroupID int, tgID int64) error {
-	role := "Супервайзер"
+	role := models.RoleSupervisor
 	status := "approved"
 
 	user, err := u.GetUserByID(ctx, userID)

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MahmudovMZ/faizapp/internal/models"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -80,7 +81,7 @@ func TestAssignSRCodeAndUpdateRollback(t *testing.T) {
 		t.Fatalf("find free sr code: %v", err)
 	}
 
-	role := "Торговый Представитель"
+	role := models.RoleSalesRep
 
 	err = repo.AssignSRCodeAndUpdate(
 		ctx,
@@ -180,7 +181,7 @@ func TestAssignSVWorkGroupAndUpdate(t *testing.T) {
 		)
 	}()
 
-	role := "Супервайзер"
+	role := models.RoleSupervisor
 
 	err = repo.AssignSVWorkGroupAndUpdate(
 		ctx,

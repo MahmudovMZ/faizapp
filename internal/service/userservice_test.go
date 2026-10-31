@@ -354,7 +354,7 @@ func TestGetUserByIDSuccess(t *testing.T) {
 }
 
 func TestAssignSRCodeSuccess(t *testing.T) {
-	role := "Торговый представитель"
+	role := models.RoleSalesRep
 
 	repo := &userServiceRepoMock{
 		userByID: &models.User{
@@ -381,7 +381,7 @@ func TestAssignSRCodeSuccess(t *testing.T) {
 }
 
 func TestAssignSRCodeNotApproved(t *testing.T) {
-	role := "Торговый представитель"
+	role := models.RoleSalesRep
 
 	repo := &userServiceRepoMock{
 		userByID: &models.User{
@@ -407,7 +407,7 @@ func TestAssignSRCodeNotApproved(t *testing.T) {
 }
 
 func TestAssignSRCodeWrongRole(t *testing.T) {
-	role := "Супервайзер"
+	role := models.RoleSupervisor
 
 	repo := &userServiceRepoMock{
 		userByID: &models.User{
