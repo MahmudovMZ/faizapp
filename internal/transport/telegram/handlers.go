@@ -390,7 +390,7 @@ func (h *Handler) handleAdminCallback(
 			break
 		}
 
-		if role == "Диспетчер" || role == "Коммерческий Директор" || role == "Старший Супервайзер" {
+		if role == models.RoleDispatcher || role == models.RoleCommercialDirector || role == models.RoleSeniorSupervisor {
 			if err := h.UserService.ApproveUser(ctx, parsed.TgID, role); err != nil {
 				log.Println("[TELEGRAM] failed to approve user:", err)
 				callbackText = "Не удалось назначить роль сотрудника"
@@ -402,14 +402,14 @@ func (h *Handler) handleAdminCallback(
 			break
 		}
 
-		if role != "Торговый Представитель" && role != "Супервайзер" {
+		if role != models.RoleSalesRep && role != models.RoleSupervisor {
 			callbackText = "Сценарий для этой роли ещё не настроен"
 			break
 		}
-		if role == "Торговый Представитель" {
+		if role == models.RoleSalesRep {
 			scenario = "sr"
 		}
-		if role == "Супервайзер" {
+		if role == models.RoleSupervisor {
 			scenario = "sv"
 		}
 		if err := h.sendWorkGroupKeyboard(
