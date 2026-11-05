@@ -28,6 +28,8 @@ type Handler struct {
 	userData  map[int64]map[string]string
 
 	lock sync.RWMutex
+
+	photoTimeout time.Duration
 }
 
 type callbackData struct {
@@ -37,7 +39,7 @@ type callbackData struct {
 	Scenario string
 }
 
-func NewBotHandler(bot *tgbotapi.BotAPI, user *service.UserService, photo *service.PhotoService, botAdmin int64) *Handler {
+func NewBotHandler(bot *tgbotapi.BotAPI, user *service.UserService, photo *service.PhotoService, botAdmin int64, photoTimeout time.Duration) *Handler {
 	return &Handler{
 		TelegramBot:  bot,
 		UserService:  user,
@@ -46,13 +48,18 @@ func NewBotHandler(bot *tgbotapi.BotAPI, user *service.UserService, photo *servi
 		botState:     make(map[int64]string),
 		userState:    make(map[int64]string),
 		userData:     make(map[int64]map[string]string),
+		photoTimeout: photoTimeout,
 	}
 }
 
 func (h *Handler) BotHandler(
 	update tgbotapi.Update,
 ) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	timeout := 5 * time.Second
+	if update.Message != nil && len(update.Message.Photo) > 0 {
+		timeout = h.photoTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	if update.CallbackQuery != nil {
