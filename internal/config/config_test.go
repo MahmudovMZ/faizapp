@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestNewBotConfig(t *testing.T) {
 	tests := []struct {
@@ -65,6 +68,7 @@ func TestNewBotConfig(t *testing.T) {
 			t.Setenv("TGBOTAPI_TOKEN", tt.token)
 			t.Setenv("BOT_MODE", tt.mode)
 			t.Setenv("ADMIN_TELEGRAM_ID", tt.adminID)
+			t.Setenv("PHOTO_TIMEOUT", "")
 
 			cfg, err := NewBotConfig()
 
@@ -93,6 +97,81 @@ func TestNewBotConfig(t *testing.T) {
 
 			if cfg.BotMode != tt.mode {
 				t.Errorf("BotMode = %q, want %q", cfg.BotMode, tt.mode)
+			}
+		})
+	}
+}
+
+func TestNewBotConfigPhotoTimeout(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       string
+		wantErr     bool
+		wantTimeout time.Duration
+	}{
+		{
+			name:        "not set uses default",
+			value:       "",
+			wantTimeout: 60 * time.Second,
+		},
+		{
+			name:        "custom seconds",
+			value:       "90s",
+			wantTimeout: 90 * time.Second,
+		},
+		{
+			name:        "custom minutes",
+			value:       "2m",
+			wantTimeout: 2 * time.Minute,
+		},
+		{
+			name:    "not a duration",
+			value:   "abc",
+			wantErr: true,
+		},
+		{
+			name:    "number without unit",
+			value:   "60",
+			wantErr: true,
+		},
+		{
+			name:    "zero",
+			value:   "0s",
+			wantErr: true,
+		},
+		{
+			name:    "negative",
+			value:   "-5s",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("TGBOTAPI_TOKEN", "test-token")
+			t.Setenv("BOT_MODE", "polling")
+			t.Setenv("ADMIN_TELEGRAM_ID", "8281761514")
+			t.Setenv("PHOTO_TIMEOUT", tt.value)
+
+			cfg, err := NewBotConfig()
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if cfg.PhotoTimeout != tt.wantTimeout {
+				t.Errorf(
+					"PhotoTimeout = %v, want %v",
+					cfg.PhotoTimeout,
+					tt.wantTimeout,
+				)
 			}
 		})
 	}

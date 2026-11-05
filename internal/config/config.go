@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -18,9 +19,10 @@ type DBConfig struct {
 }
 
 type BotConfig struct {
-	Token     string `json:"token"`
-	BotMode   string `json:"botMode"`
-	AdminTGID int64  `json:"adminTGID"`
+	Token        string        `json:"token"`
+	BotMode      string        `json:"botMode"`
+	AdminTGID    int64         `json:"adminTGID"`
+	PhotoTimeout time.Duration `json:"photoTimeout"`
 }
 
 type Config struct {
@@ -94,6 +96,8 @@ func NewBotConfig() (*BotConfig, error) {
 	tgToken := os.Getenv("TGBOTAPI_TOKEN")
 	botMode := os.Getenv("BOT_MODE")
 	tgAdminValue := os.Getenv("ADMIN_TELEGRAM_ID")
+	photoTimeout := 60 * time.Second // если в .env ничего нет
+	timeValue := os.Getenv("PHOTO_TIMEOUT")
 	if tgToken == "" || botMode == "" || tgAdminValue == "" {
 		return nil, fmt.Errorf("TGBOTAPI_TOKEN, BOT_MODE and ADMIN_TELEGRAM_ID are required")
 	}
@@ -103,15 +107,26 @@ func NewBotConfig() (*BotConfig, error) {
 	}
 
 	if tgAdmin <= 0 {
-		return nil, errors.New("TGBOTAPI_TOKEN must be a positive integer")
+		return nil, errors.New("tgAdmin must be a positive integer")
 	}
 
 	if botMode != "polling" {
 		return nil, fmt.Errorf("BOT_MODE must be 'polling'")
 	}
+	if timeValue != "" {
+		dur, err := time.ParseDuration(timeValue)
+		if err != nil {
+			return nil, fmt.Errorf("PHOTO_TIMEOUT must be a duration like 60s: %w", err)
+		}
+		if dur <= 0 {
+			return nil, errors.New("PHOTO_TIMEOUT must be greater than zero")
+		}
+		photoTimeout = dur
+	}
 	return &BotConfig{
-		Token:     tgToken,
-		BotMode:   botMode,
-		AdminTGID: tgAdmin,
+		Token:        tgToken,
+		BotMode:      botMode,
+		AdminTGID:    tgAdmin,
+		PhotoTimeout: photoTimeout,
 	}, nil
 }
