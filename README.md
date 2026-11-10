@@ -39,7 +39,7 @@ The first version is intentionally focused: Telegram is the user interface, Post
 | Photos from unregistered senders | ✅ Implemented |
 | Photo counting for sales representatives and supervisors | ✅ Implemented |
 | Parallel photo workers and photo timeout | ✅ Implemented |
-| Album (`MediaGroupID`) handling | 🟡 Next |
+| Telegram album id stored (metadata only) | ✅ Implemented |
 | Durable photo queue and retries | 🟡 Planned |
 | Dispatcher verification | ⬜ Planned |
 | Plans, reminders, reports | ⬜ Planned |
@@ -134,7 +134,8 @@ For every received photo the system:
 3. downloads the highest-resolution photo variant (within `PHOTO_TIMEOUT`);
 4. calculates a SHA-256 hash;
 5. saves the photo record to PostgreSQL;
-6. rejects exact byte duplicates through a unique index on the hash.
+6. rejects exact byte duplicates through a unique index on the hash;
+7. stores the Telegram album id (`media_group_id`, `NULL` for a single photo) as metadata.
 
 ```text
 Telegram photo → worker → Download → SHA-256 → PostgreSQL
@@ -152,14 +153,15 @@ The caption is stored for future analysis. It is not interpreted yet.
 
 ## Photo verification roadmap
 
-Already done: parallel workers, photo timeout, exact duplicates by SHA-256. The next photo capabilities are planned in this order:
+Already done: parallel workers, photo timeout, exact duplicates by SHA-256, album id stored. The next photo capabilities are planned in this order:
 
-1. group photos from Telegram albums through `MediaGroupID` (a before/after album is one merch);
+1. reply only on anomalies instead of confirming every photo;
 2. a durable photo queue in PostgreSQL with retries, so photos survive a restart or a failed download;
-3. reply only on anomalies instead of confirming every photo;
-4. later evaluate visually similar images with perceptual hashing;
-5. send possible duplicates to the dispatcher for a decision;
-6. store the verification result and notify the employee.
+3. later evaluate visually similar images with perceptual hashing;
+4. send possible duplicates to the dispatcher for a decision;
+5. store the verification result and notify the employee.
+
+**Merch counting:** merch = number of counted photos ÷ a coefficient. Albums are **not** used to form before/after pairs: on a weak mobile connection one or more photos of an album may never finish uploading, so an album is not a reliable unit.
 
 Note: Telegram strips EXIF metadata from compressed photos, so the shooting date is only available when a photo is sent as a file.
 
@@ -317,7 +319,7 @@ Telegram handlers must not contain raw SQL.
 - [x] Count photos for sales representatives and supervisors only.
 - [x] Configurable photo timeout.
 - [x] Bounded concurrent processing (photo workers).
-- [ ] Process albums as a single submission.
+- [x] Store the Telegram album id as metadata.
 - [ ] Durable queue with retries.
 - [ ] Reply only on anomalies.
 - [ ] Detect potential (non-identical) duplicates.
@@ -395,9 +397,9 @@ go test ./...
 Reliable photo intake
     │
     ├── Workers and timeout   ✅
-    ├── Albums                ← next
-    ├── Durable queue and retries
-    └── Reply only on anomalies
+    ├── Album id stored       ✅
+    ├── Reply only on anomalies   ← next
+    └── Durable queue and retries
 ```
 
 After this block: dispatcher review, daily reporting, then VPS deployment for the pilot.
@@ -406,7 +408,7 @@ After this block: dispatcher review, daily reporting, then VPS deployment for th
 
 **Active development**
 
-The application foundation, user-management workflows, group assignments, the photo-reporting layer (including unregistered senders, role-based counting and parallel workers) are implemented. The next milestone is reliable photo intake: albums, a durable queue and anomaly-only replies.
+The application foundation, user-management workflows, group assignments, the photo-reporting layer (including unregistered senders, role-based counting and parallel workers) are implemented. The next milestone is reliable photo intake: anomaly-only replies and a durable queue.
 
 ## License
 
