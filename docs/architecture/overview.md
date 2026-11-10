@@ -1,7 +1,7 @@
 # FaizApp Architecture Overview
 
 > **Status:** Early pilot / MVP
-> **Last architecture checkpoint:** parallel photo workers (PR #59)
+> **Last architecture checkpoint:** album id stored (PR #69)
 > **Primary runtime mode:** Telegram Long Polling
 
 ## 1. Purpose
@@ -16,7 +16,7 @@ It currently covers:
 - photos from unregistered senders and an invitation to register;
 - photo counting for sales representatives and supervisors.
 
-Planned next: album handling, a durable photo queue, dispatcher verification, merch accounting, scheduled reports and VPS deployment.
+Planned next: anomaly-only replies, a durable photo queue, dispatcher verification, merch accounting, scheduled reports and VPS deployment.
 
 Only components required by the current stage are implemented.
 
@@ -174,7 +174,7 @@ brand_categories
 
 - `users.status`: `pending` / `approved` / `rejected`.
 - `users.role`: one of the role constants, `NULL` until assigned.
-- `photos` stores `user_id`, Telegram user and message IDs, caption, received time and SHA-256. The Telegram `file_id` is intentionally not stored.
+- `photos` stores `user_id`, Telegram user and message IDs, caption, received time, SHA-256 and `media_group_id` (Telegram album id, `NULL` for a single photo, metadata only). The Telegram `file_id` is intentionally not stored.
 
 ---
 
@@ -229,7 +229,6 @@ photo saved ─► role is sales rep or supervisor? ─ yes ─► counted
 
 - Conversation state is in memory: a restart in the middle of registration loses the step.
 - Photos waiting in the channel are lost if the process stops; a durable queue is planned.
-- Albums are processed photo by photo.
 - A new sender who sends several photos at once may be mentioned more than once.
 - If the very first photo of a new sender is a duplicate, the registration link is not sent.
 - Telegram removes EXIF from compressed photos, so the shooting date is not available.
@@ -238,11 +237,11 @@ photo saved ─► role is sales rep or supervisor? ─ yes ─► counted
 
 ## 10. Next Steps
 
-1. Albums via `MediaGroupID`.
+1. Reply only on anomalies.
 2. Durable photo queue in PostgreSQL with leases and retries.
-3. Reply only on anomalies.
+3. Photos sent as files and other media.
 4. Dispatcher verification (accepted / accepted with comment / rejected).
-5. Merch accounting, daily and monthly reports, reminders.
+5. Merch accounting (photo count ÷ coefficient; albums are not used), daily and monthly reports, reminders.
 6. VPS deployment with Docker Compose, backups and monitoring.
 
 ---
