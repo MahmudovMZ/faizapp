@@ -1,820 +1,258 @@
 # FaizApp Architecture Overview
 
-> **Status:** Early pilot / MVP  
-> **Last architecture checkpoint:** Configuration stage completed  
+> **Status:** Early pilot / MVP
+> **Last architecture checkpoint:** parallel photo workers (PR #59)
 > **Primary runtime mode:** Telegram Long Polling
 
 ## 1. Purpose
 
-FaizApp is an internal field-operations system currently implemented as a Telegram bot.
+FaizApp is an internal field-operations system implemented as a Telegram bot backed by PostgreSQL.
 
-The first development stages focus on creating a reliable foundation for:
+It currently covers:
 
-- Telegram-based user interaction;
-- field employee registration;
-- photo-report processing;
-- merchandizing accounting;
-- dispatcher verification;
-- operational statistics and reporting.
+- Telegram-based registration with administrator approval;
+- roles, work groups, territories and SR-code assignment;
+- photo-report intake with SHA-256 duplicate protection;
+- photos from unregistered senders and an invitation to register;
+- photo counting for sales representatives and supervisors.
 
-The current codebase is still intentionally small. Only components that are required by the current development stage should be implemented.
+Planned next: album handling, a durable photo queue, dispatcher verification, merch accounting, scheduled reports and VPS deployment.
+
+Only components required by the current stage are implemented.
 
 ---
 
 ## 2. System Context
 
-At the current stage, Telegram is the external interface of the application.
-
 ```text
-Telegram
-   │
-   ▼
+Telegram users (sales reps, supervisors, dispatchers, admin)
+        │
+        ▼
 Telegram Bot API
-   │
-   ▼
-FaizApp
-   │
-   ├── Configuration
-   ├── Application startup
-   ├── Polling
-   └── Telegram handlers
+        │  long polling
+        ▼
+FaizApp (single Go process)
+        │
+        ▼
+PostgreSQL
 ```
 
-PostgreSQL is the planned persistent storage layer and is the next technical milestone. Database configuration is already part of the application configuration, but the database connection itself is not implemented yet.
+The bot downloads photos from Telegram servers, not from users' phones. Download speed depends on the network of the machine running the bot.
 
 ---
 
 ## 3. Architectural Style
 
-FaizApp is currently designed as a **modular monolith**.
-
-The application is kept in a single Go codebase, while responsibilities are separated into internal packages.
-
-Current and planned responsibility boundaries:
+FaizApp is a **modular monolith**: one Go codebase with responsibilities separated into internal packages.
 
 ```text
-cmd
- │
- ▼
-app
- │
- ├── config
- ├── polling
- ├── transport
- ├── service        [planned / not implemented yet]
- ├── repository     [planned / not implemented yet]
- └── PostgreSQL     [next milestone]
+cmd/bot
+  │
+  ▼
+config ──► Database (migrations, pool) ──► app
+                                            │
+                                            ▼
+                                         polling
+                                            │
+                                            ▼
+                                   transport/telegram
+                                            │
+                                            ▼
+                                         service
+                                            │
+                                            ▼
+                                   repository/postgres
+                                            │
+                                            ▼
+                                        PostgreSQL
 ```
 
-The project deliberately avoids premature microservices or distributed infrastructure.
-
-The architecture should grow incrementally as actual business features are implemented.
+No microservices, message brokers or distributed infrastructure are used. The project grows only when a business feature needs it.
 
 ---
 
 ## 4. Core Components
 
-### 4.1 Application Entry Point
+### 4.1 Entry point — `cmd/bot/main.go`
 
-Path:
+1. `config.Load()` reads and validates `.env`.
+2. `Database.RunMigrations()` applies pending migrations (golang-migrate).
+3. `Database.NewPool()` creates the PostgreSQL pool and pings it.
+4. `app.Run()` starts the bot.
 
-```text
-cmd/bot/main.go
-```
+Any failure in steps 1–3 stops the process with a clear log message.
 
-Responsibilities:
-
-1. load application configuration;
-2. handle configuration-loading failure;
-3. pass the completed configuration into the application package.
-
-Current startup flow:
-
-```text
-main()
-  │
-  ▼
-config.Load()
-  │
-  ▼
-app.Run(cfg)
-```
-
-The entry point does not read environment variables directly.
-
----
-
-### 4.2 Configuration
-
-Path:
-
-```text
-internal/config/config.go
-```
-
-The configuration package owns environment configuration loading and validation.
-
-The current configuration model is:
+### 4.2 Configuration — `internal/config`
 
 ```text
 Config
 ├── Bot BotConfig
-└── DB  DBConfig
+│   ├── Token          TGBOTAPI_TOKEN      required
+│   ├── BotMode        BOT_MODE            required, only "polling"
+│   ├── AdminTGID      ADMIN_TELEGRAM_ID   required, positive integer
+│   ├── PhotoTimeout   PHOTO_TIMEOUT       optional, Go duration > 0, default 60s
+│   └── PhotoWorkers   PHOTO_WORKERS       optional, 1–8, default 4
+└── DB DBConfig
+    └── POSTGRES_HOST / PORT / USER / PASSWORD / DB   required
 ```
 
-`BotConfig` contains:
+Validation happens before the bot starts. Real values stay in `.env`; `.env.example` holds placeholders.
+
+### 4.3 Database — `internal/Database`
+
+- `BuildDSN` builds a plain PostgreSQL URL. It is shared with migrations, so it must not contain pgx-only parameters (golang-migrate rejects `pool_max_conns`).
+- `NewPool` parses the DSN with `pgxpool.ParseConfig` and sets `MaxConns = 10`, so the pool size is the same on every machine (the pgx default depends on the CPU count).
+- Migrations live in `migrations/` as numbered `up`/`down` pairs.
+
+### 4.4 Application composition — `internal/app`
+
+Creates the repository, `UserService`, `PhotoService` and the Telegram Bot API client, then starts polling with the admin ID, photo timeout and number of photo workers.
+
+### 4.5 Polling and photo workers — `internal/polling`
 
 ```text
-Token
-BotMode
-```
-
-`DBConfig` contains:
-
-```text
-Username
-Password
-DBName
-Host
-Port
-```
-
-Current configuration flow:
-
-```text
-.env
-  │
-  ▼
-godotenv.Load()
-  │
-  ├── NewBotConfig()
-  │
-  └── NewDBConfig()
-          │
-          ▼
-       Config
-```
-
-The package validates required values before returning the final `Config`.
-
-The currently supported bot mode is:
-
-```text
-polling
-```
-
-PostgreSQL port configuration is parsed as an integer and validated against the valid TCP port range.
-
-### Required environment variables
-
-```text
-TGBOTAPI_TOKEN
-BOT_MODE
-
-POSTGRES_HOST
-POSTGRES_PORT
-POSTGRES_USER
-POSTGRES_PASSWORD
-POSTGRES_DB
-```
-
-A safe template is stored in:
-
-```text
-.env.example
-```
-
-Real credentials must remain in `.env` and must not be committed to the repository.
-
----
-
-### 4.3 Application Composition
-
-Path:
-
-```text
-internal/app/app.go
-```
-
-The application package currently:
-
-1. receives `config.Config`;
-2. creates the Telegram Bot API client;
-3. configures Telegram debug mode;
-4. selects the bot runtime mode;
-5. starts polling.
-
-Current flow:
-
-```text
-Config
-  │
-  ▼
-app.Run()
-  │
-  ▼
-Telegram Bot API client
-  │
-  ▼
-polling.StartPolling()
-```
-
-A PostgreSQL connection is explicitly marked as the next application dependency.
-
-Current code still contains:
-
-```text
-// TODO: Db connection
-```
-
-Database initialization should therefore be added to application composition rather than scattered through Telegram handlers.
-
----
-
-### 4.4 Telegram Polling
-
-Path:
-
-```text
-internal/polling/polling.go
-```
-
-Polling currently:
-
-1. creates a Telegram update configuration;
-2. uses a 30-second polling timeout;
-3. receives updates through `GetUpdatesChan`;
-4. forwards each update to the Telegram transport handler.
-
-Current flow:
-
-```text
-Telegram API
-    │
-    ▼
 GetUpdatesChan
-    │
-    ▼
-handler := telegram.NewBotHandler(bot, userService, botAdmin)
-    │
-    ▼
-for update := range updates
-    │
-    ▼
-handler.BotHandler(update)
+     │
+     ▼
+main loop ──── text, commands, callbacks ──► handler.BotHandler (in order)
+     │
+     └── photo ──► photos channel (buffer 100)
+                          │
+              ┌───────────┼───────────┐
+              ▼           ▼           ▼
+          worker 1    worker 2 …  worker N   (N = PHOTO_WORKERS)
+              │
+              ▼
+       handler.BotHandler
 ```
 
-The polling package is responsible for update delivery, not business logic.
+- Workers start once at startup and wait on the channel.
+- A slow photo download no longer blocks buttons, commands or registration.
+- Replies to photos can arrive out of order.
+- Each worker logs `[WORKER N] started` and every photo it takes.
+
+### 4.6 Telegram transport — `internal/transport/telegram`
+
+- `BotHandler` picks a timeout per update: `PhotoTimeout` for photos, 5 seconds for everything else.
+- Registration conversation state (`botState`, `userState`, `userData`) is kept in memory and protected by a `sync.RWMutex`. It is lost on restart.
+- Admin callbacks (`approve`, `reject`, `role`, `group`, `territory`, `code`) are parsed centrally and accepted only from `ADMIN_TELEGRAM_ID`.
+- Photo flow: download the largest size, call `PhotoService.SavePhoto`, then:
+  - new sender → reply to the photo with a mention and a `?start=registration` link;
+  - counted role → `Received photos: N` (temporary confirmation);
+  - other roles / no role → no reply.
+- `/start registration` for a pending user without a phone starts registration immediately.
+
+### 4.7 Services — `internal/service`
+
+- `UserService`: registration, approval, role and assignment workflows. `CreateUser` first tries `UpdateUserContact` for an existing pending user and falls back to inserting a new one.
+- `PhotoService.SavePhoto`: finds or creates the sender (`CreatePendingUser`), stores the photo, returns `SavePhotoResult{Count, Counted, NewSender}`. `Counted` is true only for `RoleSalesRep` and `RoleSupervisor`.
+
+### 4.8 Repository — `internal/repository/postgres`
+
+All SQL lives here behind the `Repository` interface. Notable methods:
+
+| Method | Behavior |
+|---|---|
+| `CreatePendingUser` | single `INSERT … ON CONFLICT (tg_id) DO UPDATE … RETURNING`; never changes an existing user |
+| `UpdateUserContact` | updates name and phone only for `status = 'pending'`; returns `pgx.ErrNoRows` otherwise |
+| `CreatePhoto` | maps the unique-hash violation to `ErrDuplicatePhoto` |
+| `CountPhotosByDate` | counts only photos of users with the sales-rep or supervisor role |
+
+Multi-step changes (role + status + assignment) run in a transaction.
 
 ---
 
-### 4.5 Telegram Transport
-
-Path:
+## 5. Data Model (current)
 
 ```text
-internal/transport/telegram/handlers.go
+users ─────────┬──< photos            (sha256_hash unique)
+  │            └──< sr_assignments >── sr_codes ──> territories ──> work_groups
+  │                                                                    │
+  └──────────── supervisor of ────────────────────────────────────────┘
+brand_categories
 ```
 
-The Telegram handler currently:
-
-- ignores updates without `Message`;
-- reads the chat ID and message text;
-- reacts to `/start`;
-- sends simple response messages.
-
-Current minimal `/start` flow:
-
-```text
-Telegram message
-      │
-      ▼
-BotHandler
-      │
-      ▼
-text == "/start"
-      │
-      ▼
-send response
-```
-
-The current handler also contains temporary in-memory global state:
-
-```text
-botState
-userState
-userData
-bot
-```
-
-These structures belong to the prototype stage and should not be treated as the final persistence/state architecture.
-
-Persistent user identity and business data are planned to move to PostgreSQL.
+- `users.status`: `pending` / `approved` / `rejected`.
+- `users.role`: one of the role constants, `NULL` until assigned.
+- `photos` stores `user_id`, Telegram user and message IDs, caption, received time and SHA-256. The Telegram `file_id` is intentionally not stored.
 
 ---
 
-### 4.6 Service Layer
+## 6. Main Flows
 
-Status:
+### 6.1 Registration
 
 ```text
-Planned
+/start ─► not in DB ─► "Регистрация" ─► full name ─► own contact ─► pending ─► admin request
+                                                                               │
+                                                     approve + role (+ group/territory/code) / reject
 ```
 
-The service layer is intended to contain business logic such as:
-
-- registration;
-- photo processing;
-- merch accounting;
-- verification;
-- statistics;
-- notifications;
-- scheduling.
-
-Telegram-specific parsing should remain in the transport layer, while reusable business rules should move into services as they are implemented.
-
-No unnecessary service abstraction should be created before the corresponding business feature exists.
-
----
-
-### 4.7 Repository Layer
-
-Status:
+### 6.2 Photo from an unregistered sender
 
 ```text
-Planned
+photo ─► sender not found ─► CreatePendingUser ─► photo saved ─► mention + ?start=registration
+          │
+          └─ link ─► /start registration ─► pending without phone ─► registration starts at once
+                                                    │
+                                          UpdateUserContact ─► admin request
 ```
 
-The repository layer will isolate persistent-storage operations from business logic.
-
-Expected direction:
+### 6.3 Photo counting
 
 ```text
-Service
-  │
-  ▼
-Repository
-  │
-  ▼
-PostgreSQL
-```
-
-Telegram handlers should not contain raw SQL.
-
-Business services should not depend on PostgreSQL query details.
-
----
-
-### 4.8 PostgreSQL
-
-Status:
-
-```text
-Configuration ready
-Connection not implemented
-```
-
-Database environment values are already loaded through `DBConfig`.
-
-The next technical milestone is to establish:
-
-```text
-Config.DB
-   │
-   ▼
-PostgreSQL connection pool
-   │
-   ▼
-Ping / health verification
-   │
-   ▼
-Application runtime
-   │
-   ▼
-Graceful shutdown
-```
-
-The full business schema should not be implemented as part of the connection-foundation task unless explicitly required.
-
----
-
-### 4.9 Scheduler
-
-Status:
-
-```text
-Planned
-```
-
-Scheduling is a later application component for:
-
-- plan-progress checks;
-- reminders;
-- midday reporting;
-- end-of-day summaries.
-
-It should be introduced only after the required persistent business data and statistics exist.
-
----
-
-## 5. Dependency Direction
-
-The intended dependency direction is:
-
-```text
-cmd
- │
- ▼
-app
- │
- ├──────────────► config
- │
- ├──────────────► polling
- │                  │
- │                  ▼
- │               transport
- │
- ├──────────────► service          [future]
- │                  │
- │                  ▼
- └──────────────► repository       [future]
-                    │
-                    ▼
-                PostgreSQL
-```
-
-General rule:
-
-> Outer delivery/infrastructure components may call application/business components, but business logic should not depend on Telegram-specific behavior.
-
-Configuration is constructed before application startup and passed inward explicitly.
-
----
-
-## 6. Main Application Flows
-
-### 6.1 Application Startup
-
-Current implemented startup:
-
-```text
-Process starts
-    │
-    ▼
-config.Load()
-    │
-    ├── load .env
-    ├── validate Telegram config
-    └── validate PostgreSQL config
-    │
-    ▼
-Config
-    │
-    ▼
-app.Run(cfg)
-    │
-    ▼
-NewBotAPI(cfg.Bot.Token)
-    │
-    ▼
-BOT_MODE == polling
-    │
-    ▼
-StartPolling(bot)
-```
-
-If configuration loading fails, startup terminates in `main`.
-
----
-
-### 6.2 User Registration
-
-Status:
-
-```text
-Planned
-```
-
-Intended high-level flow:
-
-```text
-/start
-  │
-  ▼
-identify Telegram user
-  │
-  ▼
-lookup user in PostgreSQL
-  │
-  ├── not registered
-  │      │
-  │      ▼
-  │   registration
-  │
-  └── registered
-         │
-         ▼
-      main menu
-```
-
-The current `/start` implementation is only a temporary greeting and does not yet perform persistence-based registration checks.
-
----
-
-### 6.3 Photo Processing
-
-Status:
-
-```text
-Planned
-```
-
-High-level intended flow:
-
-```text
-Telegram photo
-    │
-    ▼
-Telegram transport
-    │
-    ▼
-identify sender
-    │
-    ▼
-photo processing
-    │
-    ├── metadata
-    ├── SHA-256
-    └── EXIF when available
-    │
-    ▼
-persistent photo record
-    │
-    ▼
-work / merch accounting
-```
-
-Detailed photo-processing rules belong in dedicated business documentation rather than in this architecture overview.
-
----
-
-### 6.4 Dispatcher Verification
-
-Status:
-
-```text
-Planned
-```
-
-The dispatcher remains responsible for visual verification during the pilot.
-
-Expected outcomes:
-
-```text
-Accepted
-Accepted with comment
-Rejected
-```
-
-FaizApp should persist the decision and update business statistics accordingly.
-
-Visual quality assessment is intentionally outside the current automated architecture.
-
----
-
-### 6.5 Statistics
-
-Status:
-
-```text
-Planned
-```
-
-Statistics will be derived from persistent operational data.
-
-Expected direction:
-
-```text
-photo/report records
-       │
-       ▼
-verification
-       │
-       ▼
-daily statistics
-       │
-       ▼
-monthly statistics
-       │
-       ▼
-reports
-```
-
-Business counters should not become an unrecoverable source of truth when the underlying records can be retained.
-
----
-
-## 7. Data Flow
-
-### Current implemented data flow
-
-```text
-.env
-  │
-  ▼
-Config
-  │
-  ▼
-Application
-  │
-  ▼
-Telegram Bot API
-  │
-  ▼
-Polling
-  │
-  ▼
-Telegram Handler
-  │
-  ▼
-Telegram response
-```
-
-### Planned persistent data flow
-
-```text
-Telegram Update
-      │
-      ▼
-Transport
-      │
-      ▼
-Service
-      │
-      ▼
-Repository
-      │
-      ▼
-PostgreSQL
+photo saved ─► role is sales rep or supervisor? ─ yes ─► counted
+                                               └ no  ─► stored, not counted, no reply
 ```
 
 ---
 
-## 8. Security Boundaries
+## 7. Security Boundaries
 
-Current security requirements:
-
-- Telegram bot token must come from environment configuration;
-- PostgreSQL credentials must come from environment configuration;
-- `.env` must not be committed;
-- `.env.example` must contain placeholders only;
-- secrets must not be logged;
-- administrative functionality must later be enforced by server-side authorization.
-
-Telegram UI visibility alone must not be considered authorization.
+- Token and database credentials come only from the environment; `.env` is never committed (CI checks this).
+- Secrets must not be logged.
+- Admin actions are authorized server-side by comparing the callback sender with `ADMIN_TELEGRAM_ID`.
+- Only the user's own Telegram contact is accepted at registration.
+- Integration tests run only against a separate database set in `TEST_DATABASE_URL`.
 
 ---
 
-## 9. Current Implementation Status
+## 8. Quality Gates
 
-### Completed foundation
-
-- [x] Go application entry point
-- [x] `.env` loading
-- [x] typed application configuration
-- [x] Telegram configuration validation
-- [x] PostgreSQL configuration validation
-- [x] bot mode validation
-- [x] Telegram Bot API client initialization
-- [x] Long Polling startup
-- [x] update forwarding to Telegram handler
-- [x] minimal `/start` response
-- [x] `.env.example`
-
-### Not implemented yet
-
-- [ ] PostgreSQL connection
-- [ ] database health check
-- [ ] graceful database shutdown
-- [ ] migrations
-- [ ] persistent users
-- [ ] registration
-- [ ] role authorization
-- [ ] persistent conversational state
-- [ ] photo processing
-- [ ] duplicate detection
-- [ ] merch accounting
-- [ ] dispatcher verification
-- [ ] plans
-- [ ] statistics
-- [ ] scheduler
-- [ ] automated reports
+- Local: `make check` (gofmt, `git diff --check`, `go mod verify`, `go vet`, `go test -race`, `go build`), also run by the `pre-push` hook (`make hooks`).
+- CI (GitHub Actions): the same checks plus `govulncheck`.
+- `main` accepts pull requests only from `develop`.
 
 ---
 
-## 10. Planned Architecture
+## 9. Known Limitations
 
-The target direction is:
-
-```text
-Telegram
-   │
-   ▼
-Transport
-   │
-   ▼
-Services
-   │
-   ├── Registration
-   ├── Photo Processing
-   ├── Merch Accounting
-   ├── Verification
-   ├── Statistics
-   └── Notifications
-   │
-   ▼
-Repositories
-   │
-   ▼
-PostgreSQL
-```
-
-Supporting application components may later include:
-
-```text
-Scheduler
-Reporting
-Excel export
-```
-
-These should be introduced only when their dependent business features exist.
+- Conversation state is in memory: a restart in the middle of registration loses the step.
+- Photos waiting in the channel are lost if the process stops; a durable queue is planned.
+- Albums are processed photo by photo.
+- A new sender who sends several photos at once may be mentioned more than once.
+- If the very first photo of a new sender is a duplicate, the registration link is not sent.
+- Telegram removes EXIF from compressed photos, so the shooting date is not available.
 
 ---
 
-## 11. Out of Scope for the Current Stage
+## 10. Next Steps
 
-The following are intentionally not part of the current configuration/startup stage:
-
-- microservices;
-- AI visual analysis;
-- automated merch quality judgment;
-- web frontend;
-- Telegram Mini App;
-- advanced analytics;
-- complete reporting;
-- object storage;
-- distributed task processing;
-- premature scaling infrastructure.
-
-The next step is database foundation, not expansion into these areas.
+1. Albums via `MediaGroupID`.
+2. Durable photo queue in PostgreSQL with leases and retries.
+3. Reply only on anomalies.
+4. Dispatcher verification (accepted / accepted with comment / rejected).
+5. Merch accounting, daily and monthly reports, reminders.
+6. VPS deployment with Docker Compose, backups and monitoring.
 
 ---
 
-## 12. Related Documentation
-
-Current repository documentation:
+## 11. Related Documentation
 
 ```text
 README.md
-docs/privacy-policy.md
 docs/architecture/overview.md
+docs/privacy-policy.md
 ```
 
-Recommended future documentation:
-
-```text
-docs/
-├── architecture/
-│   ├── overview.md
-│   ├── project-structure.md
-│   └── data-flow.md
-│
-├── database/
-│   ├── schema.md
-│   └── entities.md
-│
-├── business/
-│   ├── roles.md
-│   ├── registration.md
-│   ├── photo-lifecycle.md
-│   ├── merch-accounting.md
-│   └── verification.md
-│
-└── decisions/
-    └── README.md
-```
-
----
-
-## 13. Next Architecture Checkpoint
-
-The next documentation update should happen after the PostgreSQL foundation is completed.
-
-At that point this document should be updated with:
-
-- selected PostgreSQL driver/pool;
-- database initialization ownership;
-- connection lifecycle;
-- health-check behavior;
-- shutdown behavior;
-- updated application startup flow.
+The GitHub Wiki contains the current status, the roadmap and the configuration reference.

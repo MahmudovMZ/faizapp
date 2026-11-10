@@ -1,6 +1,6 @@
 # Privacy Policy — FaizApp
 
-**Last updated: September 5, 2026**
+**Last updated: November 10, 2026**
 
 FaizApp is an internal Telegram-based application designed to manage and monitor field operations, including photo reports, work results, comments, and employee performance.
 
@@ -19,6 +19,8 @@ Depending on the features used, FaizApp may collect:
 - comments and remarks;
 - work performance and plan-related data.
 
+If a person who is not yet registered sends a photo to a FaizApp group or to the bot, FaizApp stores their Telegram user ID and display name as a pending registration so the photo is not lost and the person can be invited to register. Such a record has no role and is not used for statistics until an administrator approves it.
+
 ## 2. How We Use Information
 
 Collected information is used exclusively for the operation of FaizApp and related internal business processes, including:
@@ -33,9 +35,9 @@ Collected information is used exclusively for the operation of FaizApp and relat
 
 ## 3. Photo Reports
 
-Photographs submitted to FaizApp may be stored and processed as part of the field-work reporting process.
+Photographs submitted to FaizApp are processed as part of the field-work reporting process.
 
-The system may use technical information associated with photographs, such as file hashes and available image metadata, to help identify duplicate submissions.
+In the current version FaizApp does not keep copies of the photographs. It downloads each photo only to calculate a SHA-256 hash and stores the hash together with the sender, the Telegram message ID, the caption and the time of receipt. The hash is used to identify duplicate submissions.
 
 GPS or geolocation data is not intentionally used as part of the initial system.
 

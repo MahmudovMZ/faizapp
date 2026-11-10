@@ -8,7 +8,7 @@
 <p align="center">Registration · Photo reports · Team control · Operational statistics</p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white" alt="Go">
+  <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white" alt="Go">
   <img src="https://img.shields.io/badge/PostgreSQL-ready-4169E1?logo=postgresql&logoColor=white" alt="PostgreSQL">
   <img src="https://img.shields.io/badge/Telegram-bot-26A5E4?logo=telegram&logoColor=white" alt="Telegram">
   <img src="https://img.shields.io/badge/status-active%20development-F2C94C" alt="Active development">
@@ -35,12 +35,15 @@ The first version is intentionally focused: Telegram is the user interface, Post
 | Roles, work groups, territories | ✅ Implemented |
 | Supervisor assignment | ✅ Implemented |
 | Telegram photo intake | ✅ Implemented |
-| SHA-256 photo hashing | ✅ Implemented |
-| Photo counting | ✅ Implemented |
-| Album buffering and worker pool | 🟡 Planned |
-| Duplicate-review workflow | 🟡 Planned |
+| SHA-256 photo hashing and exact-duplicate rejection | ✅ Implemented |
+| Photos from unregistered senders | ✅ Implemented |
+| Photo counting for sales representatives and supervisors | ✅ Implemented |
+| Parallel photo workers and photo timeout | ✅ Implemented |
+| Album (`MediaGroupID`) handling | 🟡 Next |
+| Durable photo queue and retries | 🟡 Planned |
 | Dispatcher verification | ⬜ Planned |
 | Plans, reminders, reports | ⬜ Planned |
+| VPS deployment and backups | ⬜ Planned |
 
 ## Current workflow
 
@@ -51,10 +54,13 @@ Telegram user
 Telegram Bot API
      │
      ▼
-Long polling
+Long polling (main loop)
      │
-     ▼
-Telegram transport
+     ├── text, commands, buttons ──► handled in order
+     │
+     └── photos ──► buffered channel ──► PHOTO_WORKERS goroutines
+                                              │
+Telegram transport ◄─────────────────────────┘
      │
      ├── Registration and approval
      ├── Role and group assignment
@@ -93,6 +99,8 @@ The current role catalog contains:
 
 The **Senior Supervisor** role is already present as a structural role. Its special permissions will be implemented later together with the access-control layer.
 
+Role names are defined once as constants in `internal/models` (`RoleSalesRep`, `RoleSupervisor`, …) and used everywhere instead of string literals.
+
 ### Work groups
 
 ```text
@@ -119,31 +127,41 @@ Supervisors can be assigned to a work group. Sales representatives follow the co
 
 ### Photo intake
 
-The first photo-reporting foundation is implemented. For every received photo the system can:
+For every received photo the system:
 
-1. identify the Telegram sender;
-2. read the Telegram message ID and caption;
-3. download the highest-resolution photo variant;
-4. calculate a SHA-256 hash;
-5. save metadata to PostgreSQL;
-6. return the user's current photo count.
+1. identifies the Telegram sender;
+2. reads the Telegram message ID and caption;
+3. downloads the highest-resolution photo variant (within `PHOTO_TIMEOUT`);
+4. calculates a SHA-256 hash;
+5. saves the photo record to PostgreSQL;
+6. rejects exact byte duplicates through a unique index on the hash.
 
 ```text
-Telegram photo → Download → SHA-256 → PostgreSQL → User photo count
+Telegram photo → worker → Download → SHA-256 → PostgreSQL
 ```
+
+**Unregistered senders.** A photo from a Telegram user who is not in the database is not dropped. The sender is created as a `pending` user (name taken from Telegram), the photo is saved, and the bot replies to the photo with a mention and a link `t.me/<bot>?start=registration`. Opening the link starts registration right away; the entered name and phone overwrite the pending record, and the administrator receives the usual approval request.
+
+**Which photos are counted.** Every photo is stored, but only users with the **Sales Representative** or **Supervisor** role are counted. Other roles and pending users without a role just send photos. Photos sent before a role was assigned are counted once the role is set, because counting uses the user's current role.
+
+**Replies.** The current `Received photos: N` reply is a temporary confirmation used during development. The target behavior is to stay silent on normal photos and reply only on anomalies such as duplicates.
+
+**Concurrency.** Photos are processed by `PHOTO_WORKERS` goroutines (default 4), so a slow download does not block buttons, commands or registration. Replies to photos can therefore arrive out of order.
 
 The caption is stored for future analysis. It is not interpreted yet.
 
 ## Photo verification roadmap
 
-The current implementation stores and counts photos. The next photo capabilities are planned in this order:
+Already done: parallel workers, photo timeout, exact duplicates by SHA-256. The next photo capabilities are planned in this order:
 
-1. collect photos from Telegram albums through `MediaGroupID`;
-2. add a bounded queue and worker pool for concurrent downloads;
-3. detect exact duplicates using stored SHA-256 hashes;
+1. group photos from Telegram albums through `MediaGroupID` (a before/after album is one merch);
+2. a durable photo queue in PostgreSQL with retries, so photos survive a restart or a failed download;
+3. reply only on anomalies instead of confirming every photo;
 4. later evaluate visually similar images with perceptual hashing;
 5. send possible duplicates to the dispatcher for a decision;
 6. store the verification result and notify the employee.
+
+Note: Telegram strips EXIF metadata from compressed photos, so the shooting date is only available when a photo is sent as a file.
 
 Planned dispatcher decisions:
 
@@ -165,8 +183,9 @@ faizapp/
 ├── internal/
 │   ├── app/                         # Composition and startup
 │   ├── config/                      # Environment loading and validation
-│   ├── models/                      # Domain models and Telegram menus
-│   ├── polling/                     # Telegram update delivery
+│   ├── Database/                    # Connection pool and migrations
+│   ├── models/                      # Domain models, roles and Telegram menus
+│   ├── polling/                     # Update delivery and photo workers
 │   ├── repository/postgres/         # PostgreSQL access
 │   ├── service/                     # Business logic
 │   ├── transport/telegram/          # Telegram handlers and state
@@ -202,13 +221,29 @@ Runtime configuration is loaded from environment variables:
 ```env
 TGBOTAPI_TOKEN=
 BOT_MODE=polling
+ADMIN_TELEGRAM_ID=
 
 POSTGRES_HOST=
 POSTGRES_PORT=
 POSTGRES_USER=
 POSTGRES_PASSWORD=
 POSTGRES_DB=
+
+# optional
+PHOTO_TIMEOUT=60s
+PHOTO_WORKERS=4
 ```
+
+| Variable | Required | Meaning |
+|---|---|---|
+| `TGBOTAPI_TOKEN` | yes | Telegram bot token |
+| `BOT_MODE` | yes | only `polling` is supported |
+| `ADMIN_TELEGRAM_ID` | yes | Telegram ID that receives registration requests |
+| `POSTGRES_*` | yes | PostgreSQL connection |
+| `PHOTO_TIMEOUT` | no | time allowed for one photo, Go duration (`60s`, `2m`); default `60s` |
+| `PHOTO_WORKERS` | no | number of parallel photo workers, `1`–`8`; default `4` |
+
+Invalid values stop the bot at startup with a clear error. Other updates (text, buttons) have a fixed 5-second timeout. The PostgreSQL pool is fixed at 10 connections.
 
 Use `.env.example` as a template. The real `.env` file and all credentials must remain local and ignored by Git.
 
@@ -216,10 +251,11 @@ Use `.env.example` as a template. The real `.env` file and all credentials must 
 
 ### Requirements
 
-- Go 1.24 or newer;
+- Go 1.26 or newer;
 - PostgreSQL;
-- a Telegram bot token;
-- applied database migrations.
+- a Telegram bot token.
+
+Migrations are applied automatically at startup.
 
 ### Run the project
 
@@ -232,10 +268,21 @@ go run ./cmd/bot
 ### Check changes
 
 ```bash
-gofmt -w .
-git diff --check
-go test ./...
+make check
 ```
+
+`make check` runs gofmt, `git diff --check`, `go mod verify`, `go vet`, `go test -race` and `go build`. Enable the same checks before every push with `make hooks`.
+
+### Integration tests
+
+Repository tests that need a real database are marked with the `integration` build tag and are skipped unless `TEST_DATABASE_URL` points to a **separate test database** (never production). The test database must have all migrations applied.
+
+```bash
+TEST_DATABASE_URL=postgres://user:pass@host:5432/faizapp_test?sslmode=disable \
+  go test -tags integration ./internal/repository/postgres/
+```
+
+The tests create their own rows with random Telegram IDs and delete them afterwards.
 
 ## Database
 
@@ -265,10 +312,15 @@ Telegram handlers must not contain raw SQL.
 - [x] Download photo files.
 - [x] Store sender and message metadata.
 - [x] Calculate SHA-256 hashes.
-- [x] Count photos by user.
+- [x] Reject exact duplicates.
+- [x] Accept photos from unregistered senders and invite them to register.
+- [x] Count photos for sales representatives and supervisors only.
+- [x] Configurable photo timeout.
+- [x] Bounded concurrent processing (photo workers).
 - [ ] Process albums as a single submission.
-- [ ] Add bounded concurrent processing.
-- [ ] Detect exact and potential duplicates.
+- [ ] Durable queue with retries.
+- [ ] Reply only on anomalies.
+- [ ] Detect potential (non-identical) duplicates.
 - [ ] Link photos to work/reporting events.
 
 ### Dispatcher verification — planned
@@ -287,6 +339,13 @@ Telegram handlers must not contain raw SQL.
 - [ ] End-of-day summaries.
 - [ ] Dispatcher statistics.
 - [ ] Management reports and Excel-compatible exports.
+
+### Operations — planned
+
+- [ ] Docker Compose deployment on a VPS.
+- [ ] Health check, structured logs, restart policy.
+- [ ] Daily external PostgreSQL backups and restore check.
+- [ ] Deploy, rollback and incident runbook.
 
 ### Future platform capabilities
 
@@ -333,22 +392,21 @@ go test ./...
 ## Current focus
 
 ```text
-Photo intake
+Reliable photo intake
     │
-    ├── Albums
-    ├── Queue and workers
-    ├── Duplicate detection
-    ├── Dispatcher review
-    └── Daily reporting
+    ├── Workers and timeout   ✅
+    ├── Albums                ← next
+    ├── Durable queue and retries
+    └── Reply only on anomalies
 ```
 
-After this block is complete, the project can move to employee plans, scheduled reminders, and full operational statistics.
+After this block: dispatcher review, daily reporting, then VPS deployment for the pilot.
 
 ## Project status
 
 **Active development**
 
-The application foundation, user-management workflows, group assignments, and the first photo-reporting layer are implemented. The next major milestone is a reliable photo workflow with album handling, duplicate review, dispatcher verification, and daily reporting.
+The application foundation, user-management workflows, group assignments, the photo-reporting layer (including unregistered senders, role-based counting and parallel workers) are implemented. The next milestone is reliable photo intake: albums, a durable queue and anomaly-only replies.
 
 ## License
 
