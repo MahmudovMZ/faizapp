@@ -28,9 +28,10 @@ func (r *FaizAppRepo) CreatePhoto(
 			telegram_message_id,
 			sha256_hash,
 			caption,
-			received_at
+			received_at,
+			media_group_id
 		)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''))
 	`
 
 	_, err := r.Pool.Exec(
@@ -42,6 +43,7 @@ func (r *FaizAppRepo) CreatePhoto(
 		photo.Sha256Hash,
 		photo.Caption,
 		photo.ReceivedAt,
+		photo.MediaGroupID,
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError

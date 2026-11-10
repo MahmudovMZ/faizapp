@@ -319,3 +319,88 @@ func TestCountPhotosByDateCountedRoles(t *testing.T) {
 		t.Fatalf("count after role assignment = %d, want 2", count)
 	}
 }
+
+func TestCreatePhotoMediaGroupID(t *testing.T) {
+	dbURL := os.Getenv("TEST_DATABASE_URL")
+	if dbURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Fatalf("create pool: %v", err)
+	}
+	defer pool.Close()
+
+	if err := pool.Ping(ctx); err != nil {
+		t.Fatalf("ping database: %v", err)
+	}
+
+	repo := NewFaizAppRepo(pool)
+
+	tgID := randomTestTgID()
+
+	defer func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM photos WHERE telegram_user_id = $1`, tgID)
+		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE tg_id = $1`, tgID)
+	}()
+
+	user, err := repo.CreatePendingUser(ctx, tgID, "Media Group User")
+	if err != nil {
+		t.Fatalf("create pending user: %v", err)
+	}
+
+	albumPhoto := &models.Photo{
+		UserID:            user.ID,
+		TelegramUserID:    tgID,
+		TelegramMessageID: 4001,
+		MediaGroupID:      "album-test-1",
+		Sha256Hash:        fmt.Sprintf("album-photo-%d", tgID),
+		ReceivedAt:        time.Now().UTC(),
+	}
+
+	singlePhoto := &models.Photo{
+		UserID:            user.ID,
+		TelegramUserID:    tgID,
+		TelegramMessageID: 4002,
+		Sha256Hash:        fmt.Sprintf("single-photo-%d", tgID),
+		ReceivedAt:        time.Now().UTC(),
+	}
+
+	for _, photo := range []*models.Photo{albumPhoto, singlePhoto} {
+		if err := repo.CreatePhoto(ctx, photo); err != nil {
+			t.Fatalf("create photo %d: %v", photo.TelegramMessageID, err)
+		}
+	}
+
+	var groupID *string
+
+	err = pool.QueryRow(
+		ctx,
+		`SELECT media_group_id FROM photos WHERE telegram_user_id = $1 AND telegram_message_id = $2`,
+		tgID,
+		4001,
+	).Scan(&groupID)
+	if err != nil {
+		t.Fatalf("read album photo: %v", err)
+	}
+	if groupID == nil || *groupID != "album-test-1" {
+		t.Fatalf("album media_group_id = %v, want album-test-1", groupID)
+	}
+
+	err = pool.QueryRow(
+		ctx,
+		`SELECT media_group_id FROM photos WHERE telegram_user_id = $1 AND telegram_message_id = $2`,
+		tgID,
+		4002,
+	).Scan(&groupID)
+	if err != nil {
+		t.Fatalf("read single photo: %v", err)
+	}
+	if groupID != nil {
+		t.Fatalf("single photo media_group_id = %q, want NULL", *groupID)
+	}
+}

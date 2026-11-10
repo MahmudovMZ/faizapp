@@ -7,6 +7,7 @@ type Photo struct {
 	UserID            string
 	TelegramUserID    int64
 	TelegramMessageID int
+	MediaGroupID      string
 	Sha256Hash        string
 	Caption           string
 	ReceivedAt        time.Time

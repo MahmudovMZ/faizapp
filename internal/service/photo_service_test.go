@@ -29,8 +29,10 @@ func TestCalculateSHA256(t *testing.T) {
 
 func (m *userServiceRepoMock) CreatePhoto(
 	_ context.Context,
-	_ *models.Photo,
+	photo *models.Photo,
 ) error {
+	m.createdPhoto = photo
+
 	return m.photoErr
 }
 
@@ -67,6 +69,7 @@ func TestSavePhotoSuccess(t *testing.T) {
 		"",
 		time.Now(),
 		"Test User",
+		"",
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -98,6 +101,7 @@ func TestSavePhotoUserNotFound(t *testing.T) {
 		"",
 		time.Now(),
 		"Test User",
+		"",
 	)
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -124,6 +128,7 @@ func TestSavePhotoCreateError(t *testing.T) {
 		"",
 		time.Now(),
 		"Test User",
+		"",
 	)
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("error = %v, want %v", err, expectedErr)
@@ -150,6 +155,7 @@ func TestSavePhotoCountError(t *testing.T) {
 		"",
 		time.Now(),
 		"Test User",
+		"",
 	)
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("error = %v, want %v", err, expectedErr)
@@ -174,6 +180,7 @@ func TestSavePhotoDuplicate(t *testing.T) {
 		"",
 		time.Now(),
 		"Test User",
+		"",
 	)
 
 	if !errors.Is(err, ErrDuplicatePhoto) {
@@ -204,6 +211,7 @@ func TestSavePhotoUnknownSenderCreatesPendingUser(t *testing.T) {
 		"",
 		time.Now(),
 		"Test User",
+		"",
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -252,6 +260,7 @@ func TestSavePhotoUnknownSenderCreateError(t *testing.T) {
 		"",
 		time.Now(),
 		"Test User",
+		"",
 	)
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("error = %v, want %v", err, expectedErr)
@@ -275,6 +284,7 @@ func TestSavePhotoGetUserError(t *testing.T) {
 		"",
 		time.Now(),
 		"Test User",
+		"",
 	)
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("error = %v, want %v", err, expectedErr)
@@ -323,6 +333,7 @@ func TestSavePhotoCountedByRole(t *testing.T) {
 				"",
 				time.Now(),
 				"Test User",
+				"",
 			)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -330,6 +341,55 @@ func TestSavePhotoCountedByRole(t *testing.T) {
 
 			if result.Counted != tt.want {
 				t.Fatalf("Counted = %v, want %v", result.Counted, tt.want)
+			}
+		})
+	}
+}
+
+func TestSavePhotoPassesMediaGroupID(t *testing.T) {
+	tests := []struct {
+		name         string
+		mediaGroupID string
+	}{
+		{name: "album photo", mediaGroupID: "album-1"},
+		{name: "single photo", mediaGroupID: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &userServiceRepoMock{
+				user: &models.User{
+					ID: "user-1",
+				},
+				photoCount: 1,
+			}
+
+			service := NewPhotoService(repo)
+
+			_, err := service.SavePhoto(
+				context.Background(),
+				123456789,
+				10,
+				[]byte("photo data"),
+				"",
+				time.Now(),
+				"Test User",
+				tt.mediaGroupID,
+			)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if repo.createdPhoto == nil {
+				t.Fatal("expected CreatePhoto to be called")
+			}
+
+			if repo.createdPhoto.MediaGroupID != tt.mediaGroupID {
+				t.Fatalf(
+					"MediaGroupID = %q, want %q",
+					repo.createdPhoto.MediaGroupID,
+					tt.mediaGroupID,
+				)
 			}
 		})
 	}

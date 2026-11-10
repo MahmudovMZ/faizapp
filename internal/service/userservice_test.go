@@ -43,6 +43,7 @@ type userServiceRepoMock struct {
 	assignSVWorkGroupCalled bool
 
 	photoErr      error
+	createdPhoto  *models.Photo
 	photoCount    int
 	photoCountErr error
 

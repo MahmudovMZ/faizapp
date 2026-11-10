@@ -36,7 +36,7 @@ func (h *Handler) handlePhotoMessage(ctx context.Context, msg *tgbotapi.Message)
 
 	fullName := fmt.Sprintf("%s %s", strings.TrimSpace(msg.From.FirstName), strings.TrimSpace(msg.From.LastName))
 
-	result, err := h.PhotoService.SavePhoto(ctx, tgUserID, tgMessageID, data, caption, receivedAt, strings.TrimSpace(fullName))
+	result, err := h.PhotoService.SavePhoto(ctx, tgUserID, tgMessageID, data, caption, receivedAt, strings.TrimSpace(fullName), msg.MediaGroupID)
 	if err != nil {
 		return service.SavePhotoResult{}, fmt.Errorf("[HANDLER] save photo failed: %w", err)
 	}
