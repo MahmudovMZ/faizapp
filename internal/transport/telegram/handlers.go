@@ -80,15 +80,17 @@ func (h *Handler) BotHandler(
 	text := strings.TrimSpace(update.Message.Text)
 	tgID := update.Message.From.ID
 
+	failPohotText := "Не удалось обработать фотографию. Попробуйте ещё раз."
+	rejectPhotoText := "Это фото уже было отправлено ранее и не будет засчитано повторно."
 	if len(update.Message.Photo) > 0 {
 		result, err := h.handlePhotoMessage(ctx, update.Message)
 		if err != nil {
 			if errors.Is(err, service.ErrDuplicatePhoto) {
-				h.send(chatID, "Это фото уже было отправлено ранее и не будет засчитано повторно.")
+				h.replyTo(update.Message, rejectPhotoText)
 				return
 			}
 			log.Println(err)
-			h.send(chatID, "Не удалось обработать фотографию. Попробуйте ещё раз.")
+			h.replyTo(update.Message, failPohotText)
 			return
 		}
 		if result.NewSender {
@@ -887,6 +889,16 @@ func (h *Handler) mentionNewUser(msg *tgbotapi.Message) {
 
 	if _, err := h.TelegramBot.Send(reply); err != nil {
 		log.Println("failed to send reply:", err)
+	}
+}
+
+func (h *Handler) replyTo(msg *tgbotapi.Message, text string) {
+	chatID := msg.Chat.ID
+	messageID := msg.MessageID
+	reply := tgbotapi.NewMessage(chatID, text)
+	reply.ReplyToMessageID = messageID
+	if _, err := h.TelegramBot.Send(reply); err != nil {
+		log.Println("[TELEGRAM] failed to send reply:", err)
 	}
 }
 
