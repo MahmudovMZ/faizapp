@@ -13,7 +13,13 @@ func NewPool(ctx context.Context, cfg config.DBConfig) (*pgxpool.Pool, error) {
 	log.Println("[DATABASE] Initializing database...")
 	dsn := BuildDSN(cfg)
 
-	db, err := pgxpool.New(ctx, dsn)
+	poolConfig, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse dsn: %w", err)
+	}
+	poolConfig.MaxConns = 10
+
+	db, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		return nil, err
 	}

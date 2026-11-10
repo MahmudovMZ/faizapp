@@ -69,6 +69,7 @@ func TestNewBotConfig(t *testing.T) {
 			t.Setenv("BOT_MODE", tt.mode)
 			t.Setenv("ADMIN_TELEGRAM_ID", tt.adminID)
 			t.Setenv("PHOTO_TIMEOUT", "")
+			t.Setenv("PHOTO_WORKERS", "")
 
 			cfg, err := NewBotConfig()
 
@@ -152,6 +153,7 @@ func TestNewBotConfigPhotoTimeout(t *testing.T) {
 			t.Setenv("BOT_MODE", "polling")
 			t.Setenv("ADMIN_TELEGRAM_ID", "8281761514")
 			t.Setenv("PHOTO_TIMEOUT", tt.value)
+			t.Setenv("PHOTO_WORKERS", "")
 
 			cfg, err := NewBotConfig()
 
@@ -171,6 +173,87 @@ func TestNewBotConfigPhotoTimeout(t *testing.T) {
 					"PhotoTimeout = %v, want %v",
 					cfg.PhotoTimeout,
 					tt.wantTimeout,
+				)
+			}
+		})
+	}
+}
+
+func TestNewBotConfigPhotoWorkers(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       string
+		wantErr     bool
+		wantWorkers int
+	}{
+		{
+			name:        "not set uses default",
+			value:       "",
+			wantWorkers: 4,
+		},
+		{
+			name:        "minimum",
+			value:       "1",
+			wantWorkers: 1,
+		},
+		{
+			name:        "custom value",
+			value:       "6",
+			wantWorkers: 6,
+		},
+		{
+			name:        "maximum",
+			value:       "8",
+			wantWorkers: 8,
+		},
+		{
+			name:    "not a number",
+			value:   "abc",
+			wantErr: true,
+		},
+		{
+			name:    "zero",
+			value:   "0",
+			wantErr: true,
+		},
+		{
+			name:    "negative",
+			value:   "-2",
+			wantErr: true,
+		},
+		{
+			name:    "above maximum",
+			value:   "9",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("TGBOTAPI_TOKEN", "test-token")
+			t.Setenv("BOT_MODE", "polling")
+			t.Setenv("ADMIN_TELEGRAM_ID", "8281761514")
+			t.Setenv("PHOTO_TIMEOUT", "")
+			t.Setenv("PHOTO_WORKERS", tt.value)
+
+			cfg, err := NewBotConfig()
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if cfg.PhotoWorkers != tt.wantWorkers {
+				t.Errorf(
+					"PhotoWorkers = %d, want %d",
+					cfg.PhotoWorkers,
+					tt.wantWorkers,
 				)
 			}
 		})
