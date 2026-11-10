@@ -23,6 +23,7 @@ type BotConfig struct {
 	BotMode      string        `json:"botMode"`
 	AdminTGID    int64         `json:"adminTGID"`
 	PhotoTimeout time.Duration `json:"photoTimeout"`
+	PhotoWorkers int           `json:"photoWorkers"`
 }
 
 type Config struct {
@@ -123,10 +124,23 @@ func NewBotConfig() (*BotConfig, error) {
 		}
 		photoTimeout = dur
 	}
+	photoWorkers := 4
+	workersValue := os.Getenv("PHOTO_WORKERS")
+	if workersValue != "" {
+		numWorkers, err := strconv.Atoi(workersValue)
+		if err != nil {
+			return nil, fmt.Errorf("PHOTO_WORKERS must be a valid integer: %w", err)
+		}
+		if numWorkers < 1 || numWorkers > 8 {
+			return nil, errors.New("PHOTO_WORKERS must be between 1 and 8")
+		}
+		photoWorkers = numWorkers
+	}
 	return &BotConfig{
 		Token:        tgToken,
 		BotMode:      botMode,
 		AdminTGID:    tgAdmin,
 		PhotoTimeout: photoTimeout,
+		PhotoWorkers: photoWorkers,
 	}, nil
 }

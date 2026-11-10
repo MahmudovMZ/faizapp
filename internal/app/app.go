@@ -25,7 +25,7 @@ func Run(cfg config.Config, pool *pgxpool.Pool) error {
 
 	switch cfg.Bot.BotMode {
 	case "polling":
-		polling.StartPolling(bot, userService, photoService, cfg.Bot.AdminTGID, cfg.Bot.PhotoTimeout)
+		polling.StartPolling(bot, userService, photoService, cfg.Bot.AdminTGID, cfg.Bot.PhotoTimeout, cfg.Bot.PhotoWorkers)
 	}
 
 	return nil
