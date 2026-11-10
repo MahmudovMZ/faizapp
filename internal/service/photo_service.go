@@ -27,7 +27,7 @@ func NewPhotoService(repo postgres.Repository) *PhotoService {
 	return &PhotoService{repo: repo}
 }
 
-func (s *PhotoService) SavePhoto(ctx context.Context, tgId int64, tgMsgId int, data []byte, caption string, receivedAt time.Time, fullName string) (SavePhotoResult, error) {
+func (s *PhotoService) SavePhoto(ctx context.Context, tgId int64, tgMsgId int, data []byte, caption string, receivedAt time.Time, fullName string, mediaGroupID string) (SavePhotoResult, error) {
 	isNew := false
 	user, err := s.repo.GetUserByTgID(ctx, tgId)
 	if err != nil {
@@ -54,6 +54,7 @@ func (s *PhotoService) SavePhoto(ctx context.Context, tgId int64, tgMsgId int, d
 		Sha256Hash:        hash,
 		Caption:           caption,
 		ReceivedAt:        receivedAt,
+		MediaGroupID:      mediaGroupID,
 	}
 
 	err = s.repo.CreatePhoto(ctx, photo)
