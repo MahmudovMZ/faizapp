@@ -39,6 +39,11 @@ type callbackData struct {
 	Scenario string
 }
 
+const (
+	failPhotoText   = "Не удалось обработать фотографию. Попробуйте ещё раз."
+	rejectPhotoText = "Это фото уже было отправлено ранее и не будет засчитано повторно."
+)
+
 func NewBotHandler(bot *tgbotapi.BotAPI, user *service.UserService, photo *service.PhotoService, botAdmin int64, photoTimeout time.Duration) *Handler {
 	return &Handler{
 		TelegramBot:  bot,
@@ -80,8 +85,6 @@ func (h *Handler) BotHandler(
 	text := strings.TrimSpace(update.Message.Text)
 	tgID := update.Message.From.ID
 
-	failPohotText := "Не удалось обработать фотографию. Попробуйте ещё раз."
-	rejectPhotoText := "Это фото уже было отправлено ранее и не будет засчитано повторно."
 	if len(update.Message.Photo) > 0 {
 		result, err := h.handlePhotoMessage(ctx, update.Message)
 		if err != nil {
@@ -90,14 +93,13 @@ func (h *Handler) BotHandler(
 				return
 			}
 			log.Println(err)
-			h.replyTo(update.Message, failPohotText)
+			h.replyTo(update.Message, failPhotoText)
 			return
 		}
 		if result.NewSender {
 			h.mentionNewUser(update.Message)
-		} else if result.Counted {
-			h.send(chatID, fmt.Sprintf("Received photos: %d", result.Count))
 		}
+		log.Printf("[TELEGRAM] photo saved: user=%d count=%d counted=%v", tgID, result.Count, result.Counted)
 		return
 	}
 
