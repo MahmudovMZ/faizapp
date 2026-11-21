@@ -69,12 +69,11 @@ func (h *Handler) EnqueuePhoto(msg *tgbotapi.Message) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	fullName := fmt.Sprintf("%s %s", strings.TrimSpace(msg.From.FirstName), strings.TrimSpace(msg.From.LastName))
-
 	if len(msg.Photo) == 0 {
 		log.Println("[TELEGRAM] enqueue photo: message has no photo")
 		return
 	}
+	fullName := fmt.Sprintf("%s %s", strings.TrimSpace(msg.From.FirstName), strings.TrimSpace(msg.From.LastName))
 	photoSize := msg.Photo[len(msg.Photo)-1]
 	receivedAt := time.Unix(int64(msg.Date), 0)
 	fileID := photoSize.FileID
@@ -123,7 +122,7 @@ func (h *Handler) RunPhotoWorker(workerID int) {
 			log.Printf("[HANDLER] process photo job failed: %v", processErr)
 		}
 
-		log.Printf("[HANDLER]  worker %d finished job %d from user %d", workerID, job.ID, job.TelegramUserID)
+		log.Printf("[HANDLER] worker %d finished job %d from user %d", workerID, job.ID, job.TelegramUserID)
 		ctx3, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		err = h.JobService.FinishJob(ctx3, job, processErr)
 		cancel()
