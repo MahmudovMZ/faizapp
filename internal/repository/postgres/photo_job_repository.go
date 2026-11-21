@@ -24,8 +24,6 @@ func (r *FaizAppRepo) EnqueuePhotoJob(ctx context.Context, job *models.PhotoJob)
 }
 
 func (r *FaizAppRepo) ClaimPhotoJob(ctx context.Context, lockFor time.Duration) (*models.PhotoJob, error) {
-	log.Println("[REPOSITORY] Claim photo job")
-
 	query := `UPDATE photo_jobs SET status = $1, locked_until = NOW() + $2 * INTERVAL '1 second',
               attempts = attempts +1, updated_at = NOW() WHERE id = (SELECT id FROM photo_jobs
               WHERE (status = 'pending' AND next_attempt_at <= NOW()) OR (status = $3 AND locked_until < NOW())

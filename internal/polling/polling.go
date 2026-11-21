@@ -9,7 +9,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-func StartPolling(bot *tgbotapi.BotAPI, userService *service.UserService, photoService *service.PhotoService, botAdmin int64, photoTimeout time.Duration, photoWorkers int) {
+func StartPolling(bot *tgbotapi.BotAPI, userService *service.UserService, photoService *service.PhotoService, job *service.PhotoJobService, botAdmin int64, photoTimeout time.Duration, photoWorkers int) {
 
 	log.Println("Бот запущен!")
 
@@ -17,23 +17,17 @@ func StartPolling(bot *tgbotapi.BotAPI, userService *service.UserService, photoS
 	updateConfig.Timeout = 30
 
 	updates := bot.GetUpdatesChan(updateConfig)
-	handler := telegram.NewBotHandler(bot, userService, photoService, botAdmin, photoTimeout)
-
-	photos := make(chan tgbotapi.Update, 100)
+	handler := telegram.NewBotHandler(bot, userService, photoService, job, botAdmin, photoTimeout)
 
 	for i := 0; i < photoWorkers; i++ {
 		go func(id int) {
-			log.Printf("[WORKER %d] started", id) // один раз при запуске
-			for update := range photos {
-				log.Printf("[WORKER %d] processing photo from %d", id, update.Message.From.ID)
-				handler.BotHandler(update)
-			}
+			handler.RunPhotoWorker(id)
 		}(i + 1)
 	}
 
 	for update := range updates {
 		if update.Message != nil && len(update.Message.Photo) > 0 {
-			photos <- update
+			handler.EnqueuePhoto(update.Message)
 			continue
 		}
 		handler.BotHandler(update)
