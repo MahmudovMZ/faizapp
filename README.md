@@ -40,7 +40,7 @@ The first version is intentionally focused: Telegram is the user interface, Post
 | Photo counting for sales representatives and supervisors | ✅ Implemented |
 | Parallel photo workers and photo timeout | ✅ Implemented |
 | Telegram album id stored (metadata only) | ✅ Implemented |
-| Durable photo queue and retries | 🟡 Planned |
+| Durable photo queue and retries | ✅ Implemented |
 | Dispatcher verification | ⬜ Planned |
 | Plans, reminders, reports | ⬜ Planned |
 | VPS deployment and backups | ⬜ Planned |
@@ -58,7 +58,7 @@ Long polling (main loop)
      │
      ├── text, commands, buttons ──► handled in order
      │
-     └── photos ──► buffered channel ──► PHOTO_WORKERS goroutines
+     └── photos ──► photo_jobs table ──► PHOTO_WORKERS goroutines
                                               │
 Telegram transport ◄─────────────────────────┘
      │
@@ -129,37 +129,39 @@ Supervisors can be assigned to a work group. Sales representatives follow the co
 
 For every received photo the system:
 
-1. identifies the Telegram sender;
-2. reads the Telegram message ID and caption;
+1. stores a job in the `photo_jobs` table (sender, message ID, caption, Telegram `file_id`); the photo itself is not downloaded yet;
+2. a free worker takes the job from the table;
 3. downloads the highest-resolution photo variant (within `PHOTO_TIMEOUT`);
 4. calculates a SHA-256 hash;
 5. saves the photo record to PostgreSQL;
 6. rejects exact byte duplicates through a unique index on the hash;
-7. stores the Telegram album id (`media_group_id`, `NULL` for a single photo) as metadata.
+7. marks the job as done, or schedules a retry on error;
+8. stores the Telegram album id (`media_group_id`, `NULL` for a single photo) as metadata.
 
 ```text
-Telegram photo → worker → Download → SHA-256 → PostgreSQL
+Telegram photo → photo_jobs → worker → Download → SHA-256 → PostgreSQL
 ```
 
 **Unregistered senders.** A photo from a Telegram user who is not in the database is not dropped. The sender is created as a `pending` user (name taken from Telegram), the photo is saved, and the bot replies to the photo with a mention and a link `t.me/<bot>?start=registration`. Opening the link starts registration right away; the entered name and phone overwrite the pending record, and the administrator receives the usual approval request.
 
 **Which photos are counted.** Every photo is stored, but only users with the **Sales Representative** or **Supervisor** role are counted. Other roles and pending users without a role just send photos. Photos sent before a role was assigned are counted once the role is set, because counting uses the user's current role.
 
-**Replies.** The current `Received photos: N` reply is a temporary confirmation used during development. The target behavior is to stay silent on normal photos and reply only on anomalies such as duplicates.
+**Replies.** A normal photo gets no reply; the result is written to the log. The bot replies to the photo only on a duplicate, a new sender (registration link) or when the job could not be stored.
 
-**Concurrency.** Photos are processed by `PHOTO_WORKERS` goroutines (default 4), so a slow download does not block buttons, commands or registration. Replies to photos can therefore arrive out of order.
+**Durable queue.** Every photo becomes a row in `photo_jobs` before any processing, so it survives a bot restart. Statuses: `pending` → `processing` → `done`, or `dead` after 5 failed attempts. A worker locks the job for `PHOTO_TIMEOUT × 2`; if the bot stops in the middle, the lock expires and another worker takes the job again after the restart. A failed attempt is retried after 15 seconds, and the error text is kept in `last_error`. A duplicate photo finishes the job as `done`, because retrying will not change the answer.
+
+**Concurrency.** Photos are processed by `PHOTO_WORKERS` goroutines (default 4), so a slow download does not block buttons, commands or registration. Two workers never take the same job (`FOR UPDATE SKIP LOCKED`). Replies to photos can therefore arrive out of order.
 
 The caption is stored for future analysis. It is not interpreted yet.
 
 ## Photo verification roadmap
 
-Already done: parallel workers, photo timeout, exact duplicates by SHA-256, album id stored. The next photo capabilities are planned in this order:
+Already done: parallel workers, photo timeout, exact duplicates by SHA-256, album id stored, durable photo queue with retries. The next photo capabilities are planned in this order:
 
 1. reply only on anomalies instead of confirming every photo;
-2. a durable photo queue in PostgreSQL with retries, so photos survive a restart or a failed download;
-3. later evaluate visually similar images with perceptual hashing;
-4. send possible duplicates to the dispatcher for a decision;
-5. store the verification result and notify the employee.
+2. later evaluate visually similar images with perceptual hashing;
+3. send possible duplicates to the dispatcher for a decision;
+4. store the verification result and notify the employee.
 
 **Merch counting:** merch = number of counted photos ÷ a coefficient. Albums are **not** used to form before/after pairs: on a weak mobile connection one or more photos of an album may never finish uploading, so an album is not a reliable unit.
 
@@ -320,7 +322,7 @@ Telegram handlers must not contain raw SQL.
 - [x] Configurable photo timeout.
 - [x] Bounded concurrent processing (photo workers).
 - [x] Store the Telegram album id as metadata.
-- [ ] Durable queue with retries.
+- [x] Durable queue with retries.
 - [ ] Reply only on anomalies.
 - [ ] Detect potential (non-identical) duplicates.
 - [ ] Link photos to work/reporting events.
@@ -398,8 +400,8 @@ Reliable photo intake
     │
     ├── Workers and timeout   ✅
     ├── Album id stored       ✅
-    ├── Reply only on anomalies   ← next
-    └── Durable queue and retries
+    ├── Durable queue and retries ✅
+    └── Reply only on anomalies   ← next
 ```
 
 After this block: dispatcher review, daily reporting, then VPS deployment for the pilot.
@@ -408,7 +410,7 @@ After this block: dispatcher review, daily reporting, then VPS deployment for th
 
 **Active development**
 
-The application foundation, user-management workflows, group assignments, the photo-reporting layer (including unregistered senders, role-based counting and parallel workers) are implemented. The next milestone is reliable photo intake: anomaly-only replies and a durable queue.
+The application foundation, user-management workflows, group assignments, the photo-reporting layer (including unregistered senders, role-based counting, parallel workers and a durable photo queue) are implemented. The next step in reliable photo intake is anomaly-only replies.
 
 ## License
 
