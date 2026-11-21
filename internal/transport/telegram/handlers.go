@@ -30,6 +30,8 @@ type Handler struct {
 	lock sync.RWMutex
 
 	photoTimeout time.Duration
+
+	JobService *service.PhotoJobService
 }
 
 type callbackData struct {
@@ -44,7 +46,7 @@ const (
 	rejectPhotoText = "Это фото уже было отправлено ранее и не будет засчитано повторно."
 )
 
-func NewBotHandler(bot *tgbotapi.BotAPI, user *service.UserService, photo *service.PhotoService, botAdmin int64, photoTimeout time.Duration) *Handler {
+func NewBotHandler(bot *tgbotapi.BotAPI, user *service.UserService, photo *service.PhotoService, job *service.PhotoJobService, botAdmin int64, photoTimeout time.Duration) *Handler {
 	return &Handler{
 		TelegramBot:  bot,
 		UserService:  user,
@@ -54,6 +56,7 @@ func NewBotHandler(bot *tgbotapi.BotAPI, user *service.UserService, photo *servi
 		userState:    make(map[int64]string),
 		userData:     make(map[int64]map[string]string),
 		photoTimeout: photoTimeout,
+		JobService:   job,
 	}
 }
 
@@ -82,22 +85,24 @@ func (h *Handler) BotHandler(
 	}
 
 	chatID := update.Message.Chat.ID
+	messageID := update.Message.MessageID
 	text := strings.TrimSpace(update.Message.Text)
 	tgID := update.Message.From.ID
+	userName := update.Message.From.FirstName
 
 	if len(update.Message.Photo) > 0 {
 		result, err := h.handlePhotoMessage(ctx, update.Message)
 		if err != nil {
 			if errors.Is(err, service.ErrDuplicatePhoto) {
-				h.replyTo(update.Message, rejectPhotoText)
+				h.replyTo(chatID, messageID, rejectPhotoText)
 				return
 			}
 			log.Println(err)
-			h.replyTo(update.Message, failPhotoText)
+			h.replyTo(chatID, messageID, failPhotoText)
 			return
 		}
 		if result.NewSender {
-			h.mentionNewUser(update.Message)
+			h.mentionNewUser(chatID, messageID, tgID, userName)
 		}
 		log.Printf("[TELEGRAM] photo saved: user=%d count=%d counted=%v", tgID, result.Count, result.Counted)
 		return
@@ -874,13 +879,11 @@ func isOwnTelegramContact(contact *tgbotapi.Contact, tgID int64) bool {
 	return contact.UserID == tgID
 }
 
-func (h *Handler) mentionNewUser(msg *tgbotapi.Message) {
-	chatID := msg.Chat.ID
-	messageID := msg.MessageID
-	readerID := msg.From.ID
-	name := html.EscapeString(strings.TrimSpace(msg.From.FirstName))
+func (h *Handler) mentionNewUser(chatID int64, messageID int, tgUserID int64, userName string) {
 
-	mention := fmt.Sprintf(`<a href="tg://user?id=%d">%s</a>`, readerID, name)
+	name := html.EscapeString(strings.TrimSpace(userName))
+
+	mention := fmt.Sprintf(`<a href="tg://user?id=%d">%s</a>`, tgUserID, name)
 	link := fmt.Sprintf("https://t.me/%s?start=registration", h.TelegramBot.Self.UserName)
 	text := fmt.Sprintf("Уважаемый %s! Пройдите процедуру регистрации по ссылке %s", mention, link)
 
@@ -894,9 +897,7 @@ func (h *Handler) mentionNewUser(msg *tgbotapi.Message) {
 	}
 }
 
-func (h *Handler) replyTo(msg *tgbotapi.Message, text string) {
-	chatID := msg.Chat.ID
-	messageID := msg.MessageID
+func (h *Handler) replyTo(chatID int64, messageID int, text string) {
 	reply := tgbotapi.NewMessage(chatID, text)
 	reply.ReplyToMessageID = messageID
 	if _, err := h.TelegramBot.Send(reply); err != nil {

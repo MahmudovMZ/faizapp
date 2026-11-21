@@ -17,6 +17,7 @@ func Run(cfg config.Config, pool *pgxpool.Pool) error {
 	repo := postgres.NewFaizAppRepo(pool)
 	userService := service.NewUserService(repo)
 	photoService := service.NewPhotoService(repo)
+	jobService := service.NewPhotoJobService(repo, cfg.Bot.PhotoTimeout*2)
 	bot, err := tgbotapi.NewBotAPI(cfg.Bot.Token)
 	if err != nil {
 		return err
@@ -25,7 +26,7 @@ func Run(cfg config.Config, pool *pgxpool.Pool) error {
 
 	switch cfg.Bot.BotMode {
 	case "polling":
-		polling.StartPolling(bot, userService, photoService, cfg.Bot.AdminTGID, cfg.Bot.PhotoTimeout, cfg.Bot.PhotoWorkers)
+		polling.StartPolling(bot, userService, photoService, jobService, cfg.Bot.AdminTGID, cfg.Bot.PhotoTimeout, cfg.Bot.PhotoWorkers)
 	}
 
 	return nil
