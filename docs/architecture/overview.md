@@ -1,7 +1,7 @@
 # FaizApp Architecture Overview
 
 > **Status:** Early pilot / MVP
-> **Last architecture checkpoint:** album id stored (PR #69)
+> **Last architecture checkpoint:** durable photo queue (PR #72)
 > **Primary runtime mode:** Telegram Long Polling
 
 ## 1. Purpose
@@ -14,9 +14,10 @@ It currently covers:
 - roles, work groups, territories and SR-code assignment;
 - photo-report intake with SHA-256 duplicate protection;
 - photos from unregistered senders and an invitation to register;
-- photo counting for sales representatives and supervisors.
+- photo counting for sales representatives and supervisors;
+- a durable photo queue in PostgreSQL with retries.
 
-Planned next: anomaly-only replies, a durable photo queue, dispatcher verification, merch accounting, scheduled reports and VPS deployment.
+Planned next: anomaly-only replies, dispatcher verification, merch accounting, scheduled reports and VPS deployment.
 
 Only components required by the current stage are implemented.
 
@@ -106,7 +107,7 @@ Validation happens before the bot starts. Real values stay in `.env`; `.env.exam
 
 ### 4.4 Application composition — `internal/app`
 
-Creates the repository, `UserService`, `PhotoService` and the Telegram Bot API client, then starts polling with the admin ID, photo timeout and number of photo workers.
+Creates the repository, `UserService`, `PhotoService`, `PhotoJobService` (job lock = `PhotoTimeout × 2`) and the Telegram Bot API client, then starts polling with the admin ID, photo timeout and number of photo workers.
 
 ### 4.5 Polling and photo workers — `internal/polling`
 
@@ -116,36 +117,40 @@ GetUpdatesChan
      ▼
 main loop ──── text, commands, callbacks ──► handler.BotHandler (in order)
      │
-     └── photo ──► photos channel (buffer 100)
-                          │
-              ┌───────────┼───────────┐
-              ▼           ▼           ▼
-          worker 1    worker 2 …  worker N   (N = PHOTO_WORKERS)
-              │
-              ▼
-       handler.BotHandler
+     └── photo ──► handler.EnqueuePhoto ──► photo_jobs (status pending)
+                                                   │
+                                   ┌───────────────┼───────────────┐
+                                   ▼               ▼               ▼
+                               worker 1        worker 2 …      worker N   (N = PHOTO_WORKERS)
+                                   │
+                                   ▼
+             NextJob ──► processPhotoJob ──► FinishJob   (handler.RunPhotoWorker)
 ```
 
-- Workers start once at startup and wait on the channel.
-- A slow photo download no longer blocks buttons, commands or registration.
+- The main loop only stores the job (5-second timeout) and moves on; it never waits for a download.
+- Workers start once at startup. Each one loops: take a job, process it within `PHOTO_TIMEOUT`, record the result. On an empty queue or a database error it waits 3 seconds.
+- Each step has its own context, so a slow download cannot leave `FinishJob` without time.
+- A slow photo download does not block buttons, commands or registration.
 - Replies to photos can arrive out of order.
-- Each worker logs `[WORKER N] started` and every photo it takes.
+- Each worker logs `[HANDLER] starting worker N`, every job it receives and every job it finishes.
 
 ### 4.6 Telegram transport — `internal/transport/telegram`
 
 - `BotHandler` picks a timeout per update: `PhotoTimeout` for photos, 5 seconds for everything else.
 - Registration conversation state (`botState`, `userState`, `userData`) is kept in memory and protected by a `sync.RWMutex`. It is lost on restart.
 - Admin callbacks (`approve`, `reject`, `role`, `group`, `territory`, `code`) are parsed centrally and accepted only from `ADMIN_TELEGRAM_ID`.
-- Photo flow: download the largest size, call `PhotoService.SavePhoto`, then:
+- `EnqueuePhoto`: builds a `PhotoJob` from the message (largest size `file_id`, sender name, caption, album id, date) and stores it; if storing fails, replies to the photo with «Не удалось обработать фотографию…».
+- `processPhotoJob`: downloads by `file_id`, calls `PhotoService.SavePhoto`, then:
+  - duplicate → reply to the photo with «Это фото уже было отправлено ранее…»;
   - new sender → reply to the photo with a mention and a `?start=registration` link;
-  - counted role → `Received photos: N` (temporary confirmation);
-  - other roles / no role → no reply.
+  - otherwise → no reply, only a log line.
 - `/start registration` for a pending user without a phone starts registration immediately.
 
 ### 4.7 Services — `internal/service`
 
 - `UserService`: registration, approval, role and assignment workflows. `CreateUser` first tries `UpdateUserContact` for an existing pending user and falls back to inserting a new one.
 - `PhotoService.SavePhoto`: finds or creates the sender (`CreatePendingUser`), stores the photo, returns `SavePhotoResult{Count, Counted, NewSender}`. `Counted` is true only for `RoleSalesRep` and `RoleSupervisor`.
+- `PhotoJobService`: `EnqueueJob`, `NextJob` (claims a job with the configured lock) and `FinishJob`. `FinishJob` marks a job `done` on success or on a duplicate, `dead` when `attempts` reached 5, otherwise schedules a retry in 15 seconds. The store interface `PhotoJobStore` is declared in the service.
 
 ### 4.8 Repository — `internal/repository/postgres`
 
@@ -157,6 +162,9 @@ All SQL lives here behind the `Repository` interface. Notable methods:
 | `UpdateUserContact` | updates name and phone only for `status = 'pending'`; returns `pgx.ErrNoRows` otherwise |
 | `CreatePhoto` | maps the unique-hash violation to `ErrDuplicatePhoto` |
 | `CountPhotosByDate` | counts only photos of users with the sales-rep or supervisor role |
+| `EnqueuePhotoJob` | `INSERT … ON CONFLICT DO NOTHING`, so a repeated Telegram update does not create a second job |
+| `ClaimPhotoJob` | one `UPDATE` with a `FOR UPDATE SKIP LOCKED` subquery: takes a `pending` job whose `next_attempt_at` has come, or a `processing` job whose lock expired; sets `processing`, `locked_until`, `attempts + 1`; returns `nil, nil` on an empty queue |
+| `MarkPhotoJobDone` / `MarkPhotoJobDead` / `RetryPhotoJob` | clear the lock; dead and retry also store `last_error`; retry returns the job to `pending` with a new `next_attempt_at` |
 
 Multi-step changes (role + status + assignment) run in a transaction.
 
@@ -170,11 +178,13 @@ users ─────────┬──< photos            (sha256_hash uniqu
   │                                                                    │
   └──────────── supervisor of ────────────────────────────────────────┘
 brand_categories
+photo_jobs                            (queue, unique chat_id + telegram_message_id)
 ```
 
 - `users.status`: `pending` / `approved` / `rejected`.
 - `users.role`: one of the role constants, `NULL` until assigned.
-- `photos` stores `user_id`, Telegram user and message IDs, caption, received time, SHA-256 and `media_group_id` (Telegram album id, `NULL` for a single photo, metadata only). The Telegram `file_id` is intentionally not stored.
+- `photos` stores `user_id`, Telegram user and message IDs, caption, received time, SHA-256 and `media_group_id` (Telegram album id, `NULL` for a single photo, metadata only). The Telegram `file_id` is not stored in `photos`.
+- `photo_jobs` keeps what a worker needs to process a photo: chat and message IDs, sender, `file_id`, caption, album id, received time, plus `status` (`pending` / `processing` / `done` / `dead`), `attempts`, `next_attempt_at`, `locked_until`, `last_error`. Finished jobs stay in the table; cleanup is not implemented yet.
 
 ---
 
@@ -228,7 +238,6 @@ photo saved ─► role is sales rep or supervisor? ─ yes ─► counted
 ## 9. Known Limitations
 
 - Conversation state is in memory: a restart in the middle of registration loses the step.
-- Photos waiting in the channel are lost if the process stops; a durable queue is planned.
 - A new sender who sends several photos at once may be mentioned more than once.
 - If the very first photo of a new sender is a duplicate, the registration link is not sent.
 - Telegram removes EXIF from compressed photos, so the shooting date is not available.
@@ -238,11 +247,10 @@ photo saved ─► role is sales rep or supervisor? ─ yes ─► counted
 ## 10. Next Steps
 
 1. Reply only on anomalies.
-2. Durable photo queue in PostgreSQL with leases and retries.
-3. Photos sent as files and other media.
-4. Dispatcher verification (accepted / accepted with comment / rejected).
-5. Merch accounting (photo count ÷ coefficient; albums are not used), daily and monthly reports, reminders.
-6. VPS deployment with Docker Compose, backups and monitoring.
+2. Photos sent as files and other media.
+3. Dispatcher verification (accepted / accepted with comment / rejected).
+4. Merch accounting (photo count ÷ coefficient; albums are not used), daily and monthly reports, reminders.
+5. VPS deployment with Docker Compose, backups and monitoring.
 
 ---
 
