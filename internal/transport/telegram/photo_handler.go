@@ -25,13 +25,12 @@ func (h *Handler) processPhotoJob(ctx context.Context, job *models.PhotoJob) err
 	if err != nil {
 		if errors.Is(err, service.ErrDuplicatePhoto) {
 			h.replyTo(job.ChatID, job.TelegramMessageID, rejectPhotoText)
+			h.sendRegistrationLinkOnce(ctx, job)
 		}
 		return fmt.Errorf("[HANDLER] save photo failed: %w", err)
 	}
-	if result.NewSender {
-		h.mentionNewUser(job.ChatID, job.TelegramMessageID, job.TelegramUserID, job.SenderName)
-	}
 
+	h.sendRegistrationLinkOnce(ctx, job)
 	log.Printf("[TELEGRAM] photo saved: user=%d count=%d counted=%v", job.TelegramUserID, result.Count, result.Counted)
 	return nil
 }
@@ -39,6 +38,11 @@ func (h *Handler) processPhotoJob(ctx context.Context, job *models.PhotoJob) err
 func (h *Handler) EnqueuePhoto(msg *tgbotapi.Message) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+
+	if msg == nil || msg.From == nil {
+		log.Println("[REPOSITORY] msg.From is nil")
+		return
+	}
 
 	if len(msg.Photo) == 0 {
 		log.Println("[TELEGRAM] enqueue photo: message has no photo")
@@ -135,4 +139,16 @@ func (h *Handler) downloadTelegramFile(ctx context.Context, fileID string) ([]by
 		return nil, fmt.Errorf("[HANDLER] read file %s error: %w", fileID, err)
 	}
 	return data, nil
+}
+
+func (h *Handler) sendRegistrationLinkOnce(ctx context.Context, job *models.PhotoJob) {
+	claimed, err := h.PhotoService.ClaimRegistrationLink(ctx, job.TelegramUserID)
+	if err != nil {
+		log.Printf("[HANDLER] send registration link once failed: %v", err)
+		return
+	}
+
+	if claimed {
+		h.mentionNewUser(job.ChatID, job.TelegramMessageID, job.TelegramUserID, job.SenderName)
+	}
 }

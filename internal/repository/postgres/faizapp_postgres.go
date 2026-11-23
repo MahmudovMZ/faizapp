@@ -30,6 +30,7 @@ type Repository interface {
 	CreatePendingUser(ctx context.Context, tgID int64, fullName string) (*models.User, error)
 	UpdateUserContact(ctx context.Context, tgID int64, fullName string, phone string) error
 	PhotoExistsForMessage(ctx context.Context, tgID int64, tgMsgID int) (bool, error)
+	MarkRegistrationLinkSent(ctx context.Context, tgID int64) (bool, error)
 }
 
 type FaizAppRepo struct {
@@ -387,4 +388,16 @@ func (r *FaizAppRepo) UpdateUserContact(ctx context.Context, tgID int64, fullNam
 		return pgx.ErrNoRows
 	}
 	return nil
+}
+
+func (r *FaizAppRepo) MarkRegistrationLinkSent(ctx context.Context, tgID int64) (bool, error) {
+	log.Println("[REPOSITORY] checking for sent link")
+	query := `UPDATE users SET registration_link_sent_at = NOW() WHERE tg_id = $1 AND status = 'pending' AND (phone IS NULL OR phone = '') AND registration_link_sent_at IS NULL;`
+
+	tag, err := r.Pool.Exec(ctx, query, tgID)
+	if err != nil {
+		return false, fmt.Errorf("mark registration link sent: %w", err)
+	}
+
+	return tag.RowsAffected() == 1, nil
 }
