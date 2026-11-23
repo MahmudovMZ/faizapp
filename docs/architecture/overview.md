@@ -1,7 +1,7 @@
 # FaizApp Architecture Overview
 
 > **Status:** Early pilot / MVP
-> **Last architecture checkpoint:** durable photo queue (PR #72)
+> **Last architecture checkpoint:** registration link sent once (PR #77)
 > **Primary runtime mode:** Telegram Long Polling
 
 ## 1. Purpose
@@ -17,7 +17,7 @@ It currently covers:
 - photo counting for sales representatives and supervisors;
 - a durable photo queue in PostgreSQL with retries.
 
-Planned next: anomaly-only replies, dispatcher verification, merch accounting, scheduled reports and VPS deployment.
+Planned next: daily statistics, dispatcher verification, merch accounting, scheduled reports and VPS deployment.
 
 Only components required by the current stage are implemented.
 
@@ -136,20 +136,21 @@ main loop ──── text, commands, callbacks ──► handler.BotHandler (i
 
 ### 4.6 Telegram transport — `internal/transport/telegram`
 
-- `BotHandler` picks a timeout per update: `PhotoTimeout` for photos, 5 seconds for everything else.
+- `BotHandler` handles text, commands and callbacks with a 5-second timeout. Photos never reach it; they go through the queue.
 - Registration conversation state (`botState`, `userState`, `userData`) is kept in memory and protected by a `sync.RWMutex`. It is lost on restart.
 - Admin callbacks (`approve`, `reject`, `role`, `group`, `territory`, `code`) are parsed centrally and accepted only from `ADMIN_TELEGRAM_ID`.
-- `EnqueuePhoto`: builds a `PhotoJob` from the message (largest size `file_id`, sender name, caption, album id, date) and stores it; if storing fails, replies to the photo with «Не удалось обработать фотографию…».
+- `EnqueuePhoto`: ignores a message without a sender or without a photo; otherwise builds a `PhotoJob` from the message (largest size `file_id`, sender name, caption, album id, date) and stores it; if storing fails, replies to the photo with «Не удалось обработать фотографию…».
 - `processPhotoJob`: downloads by `file_id`, calls `PhotoService.SavePhoto`, then:
   - duplicate → reply to the photo with «Это фото уже было отправлено ранее…»;
-  - new sender → reply to the photo with a mention and a `?start=registration` link;
+  - after a saved photo or a duplicate → `sendRegistrationLinkOnce`: if `PhotoService.ClaimRegistrationLink` returns true, reply to the photo with a mention and a `?start=registration` link (a failure is only logged);
   - otherwise → no reply, only a log line.
 - `/start registration` for a pending user without a phone starts registration immediately.
 
 ### 4.7 Services — `internal/service`
 
 - `UserService`: registration, approval, role and assignment workflows. `CreateUser` first tries `UpdateUserContact` for an existing pending user and falls back to inserting a new one.
-- `PhotoService.SavePhoto`: finds or creates the sender (`CreatePendingUser`), stores the photo, returns `SavePhotoResult{Count, Counted, NewSender}`. `Counted` is true only for `RoleSalesRep` and `RoleSupervisor`.
+- `PhotoService.SavePhoto`: finds or creates the sender (`CreatePendingUser`), stores the photo, returns `SavePhotoResult{Count, Counted, NewSender}`. `Counted` is true only for `RoleSalesRep` and `RoleSupervisor`. On a unique-hash error it checks `PhotoExistsForMessage`: the same Telegram user and message means an earlier attempt already saved it, so it is a success, not a duplicate. `NewSender` is no longer used by the handler.
+- `PhotoService.ClaimRegistrationLink`: wraps `MarkRegistrationLinkSent`; true means this call should send the link.
 - `PhotoJobService`: `EnqueueJob`, `NextJob` (claims a job with the configured lock) and `FinishJob`. `FinishJob` marks a job `done` on success or on a duplicate, `dead` when `attempts` reached 5, otherwise schedules a retry in 15 seconds. The store interface `PhotoJobStore` is declared in the service.
 
 ### 4.8 Repository — `internal/repository/postgres`
@@ -162,6 +163,8 @@ All SQL lives here behind the `Repository` interface. Notable methods:
 | `UpdateUserContact` | updates name and phone only for `status = 'pending'`; returns `pgx.ErrNoRows` otherwise |
 | `CreatePhoto` | maps the unique-hash violation to `ErrDuplicatePhoto` |
 | `CountPhotosByDate` | counts only photos of users with the sales-rep or supervisor role |
+| `PhotoExistsForMessage` | `SELECT EXISTS` by Telegram user and message ID |
+| `MarkRegistrationLinkSent` | one `UPDATE` that sets `registration_link_sent_at` only for a pending user without a phone whose mark is empty; returns whether a row changed |
 | `EnqueuePhotoJob` | `INSERT … ON CONFLICT DO NOTHING`, so a repeated Telegram update does not create a second job |
 | `ClaimPhotoJob` | one `UPDATE` with a `FOR UPDATE SKIP LOCKED` subquery: takes a `pending` job whose `next_attempt_at` has come, or a `processing` job whose lock expired; sets `processing`, `locked_until`, `attempts + 1`; returns `nil, nil` on an empty queue |
 | `MarkPhotoJobDone` / `MarkPhotoJobDead` / `RetryPhotoJob` | clear the lock; dead and retry also store `last_error`; retry returns the job to `pending` with a new `next_attempt_at` |
@@ -183,6 +186,7 @@ photo_jobs                            (queue, unique chat_id + telegram_message_
 
 - `users.status`: `pending` / `approved` / `rejected`.
 - `users.role`: one of the role constants, `NULL` until assigned.
+- `users.registration_link_sent_at`: when the registration link was sent, `NULL` until then (migration 22).
 - `photos` stores `user_id`, Telegram user and message IDs, caption, received time, SHA-256 and `media_group_id` (Telegram album id, `NULL` for a single photo, metadata only). The Telegram `file_id` is not stored in `photos`.
 - `photo_jobs` keeps what a worker needs to process a photo: chat and message IDs, sender, `file_id`, caption, album id, received time, plus `status` (`pending` / `processing` / `done` / `dead`), `attempts`, `next_attempt_at`, `locked_until`, `last_error`. Finished jobs stay in the table; cleanup is not implemented yet.
 
@@ -201,7 +205,7 @@ photo_jobs                            (queue, unique chat_id + telegram_message_
 ### 6.2 Photo from an unregistered sender
 
 ```text
-photo ─► sender not found ─► CreatePendingUser ─► photo saved ─► mention + ?start=registration
+photo ─► sender not found ─► CreatePendingUser ─► saved or duplicate ─► link not sent yet? ─► mention + ?start=registration
           │
           └─ link ─► /start registration ─► pending without phone ─► registration starts at once
                                                     │
@@ -238,19 +242,19 @@ photo saved ─► role is sales rep or supervisor? ─ yes ─► counted
 ## 9. Known Limitations
 
 - Conversation state is in memory: a restart in the middle of registration loses the step.
-- A new sender who sends several photos at once may be mentioned more than once.
-- If the very first photo of a new sender is a duplicate, the registration link is not sent.
+- If Telegram fails to deliver the one registration-link message, the link is not sent again.
+- Bot replies in `processPhotoJob` are not covered by tests (needs a fake Telegram sender).
 - Telegram removes EXIF from compressed photos, so the shooting date is not available.
 
 ---
 
 ## 10. Next Steps
 
-1. Reply only on anomalies.
-2. Photos sent as files and other media.
-3. Dispatcher verification (accepted / accepted with comment / rejected).
-4. Merch accounting (photo count ÷ coefficient; albums are not used), daily and monthly reports, reminders.
-5. VPS deployment with Docker Compose, backups and monitoring.
+1. Daily statistics with merch accounting (photo count ÷ coefficient; albums are not used).
+2. VPS deployment with Docker Compose, backups and monitoring; end-to-end acceptance.
+3. Dispatcher verification (accepted / accepted with comment / rejected); whether it is needed for the pilot is still open.
+4. Photos sent as files and other media.
+5. Monthly reports, reminders.
 
 ---
 

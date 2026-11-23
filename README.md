@@ -142,7 +142,7 @@ For every received photo the system:
 Telegram photo → photo_jobs → worker → Download → SHA-256 → PostgreSQL
 ```
 
-**Unregistered senders.** A photo from a Telegram user who is not in the database is not dropped. The sender is created as a `pending` user (name taken from Telegram), the photo is saved, and the bot replies to the photo with a mention and a link `t.me/<bot>?start=registration`. Opening the link starts registration right away; the entered name and phone overwrite the pending record, and the administrator receives the usual approval request.
+**Unregistered senders.** A photo from a Telegram user who is not in the database is not dropped. The sender is created as a `pending` user (name taken from Telegram), the photo is saved, and the bot replies to the photo with a mention and a link `t.me/<bot>?start=registration`. The link is sent exactly once per person, also when the first photo is a duplicate: `users.registration_link_sent_at` is set by a single `UPDATE`, and only the worker that changed the row sends the link. Opening the link starts registration right away; the entered name and phone overwrite the pending record, and the administrator receives the usual approval request.
 
 **Which photos are counted.** Every photo is stored, but only users with the **Sales Representative** or **Supervisor** role are counted. Other roles and pending users without a role just send photos. Photos sent before a role was assigned are counted once the role is set, because counting uses the user's current role.
 
@@ -156,12 +156,11 @@ The caption is stored for future analysis. It is not interpreted yet.
 
 ## Photo verification roadmap
 
-Already done: parallel workers, photo timeout, exact duplicates by SHA-256, album id stored, durable photo queue with retries. The next photo capabilities are planned in this order:
+Already done: parallel workers, photo timeout, exact duplicates by SHA-256, album id stored, durable photo queue with retries, replies only on anomalies, registration link sent once. The next photo capabilities are planned in this order:
 
-1. reply only on anomalies instead of confirming every photo;
-2. later evaluate visually similar images with perceptual hashing;
-3. send possible duplicates to the dispatcher for a decision;
-4. store the verification result and notify the employee.
+1. later evaluate visually similar images with perceptual hashing;
+2. send possible duplicates to the dispatcher for a decision;
+3. store the verification result and notify the employee.
 
 **Merch counting:** merch = number of counted photos ÷ a coefficient. Albums are **not** used to form before/after pairs: on a weak mobile connection one or more photos of an album may never finish uploading, so an album is not a reliable unit.
 
@@ -323,7 +322,8 @@ Telegram handlers must not contain raw SQL.
 - [x] Bounded concurrent processing (photo workers).
 - [x] Store the Telegram album id as metadata.
 - [x] Durable queue with retries.
-- [ ] Reply only on anomalies.
+- [x] Reply only on anomalies.
+- [x] Send the registration link exactly once.
 - [ ] Detect potential (non-identical) duplicates.
 - [ ] Link photos to work/reporting events.
 
@@ -401,16 +401,17 @@ Reliable photo intake
     ├── Workers and timeout   ✅
     ├── Album id stored       ✅
     ├── Durable queue and retries ✅
-    └── Reply only on anomalies   ← next
+    ├── Reply only on anomalies   ✅
+    └── Registration link once    ✅
 ```
 
-After this block: dispatcher review, daily reporting, then VPS deployment for the pilot.
+Next for the pilot: daily statistics with merch (photo count ÷ coefficient), then VPS deployment with backups and end-to-end acceptance.
 
 ## Project status
 
 **Active development**
 
-The application foundation, user-management workflows, group assignments, the photo-reporting layer (including unregistered senders, role-based counting, parallel workers and a durable photo queue) are implemented. The next step in reliable photo intake is anomaly-only replies.
+The application foundation, user-management workflows, group assignments, the photo-reporting layer (including unregistered senders, role-based counting, parallel workers, a durable photo queue, anomaly-only replies and a one-time registration link) are implemented. The next step towards the pilot is daily statistics with merch accounting.
 
 ## License
 
