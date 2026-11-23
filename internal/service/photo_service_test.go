@@ -48,6 +48,16 @@ func (m *userServiceRepoMock) PhotoExistsForMessage(
 	return m.photoExists, m.photoExistsErr
 }
 
+func (m *userServiceRepoMock) MarkRegistrationLinkSent(
+	_ context.Context,
+	tgID int64,
+) (bool, error) {
+	m.linkClaimCalled = true
+	m.linkClaimTgID = tgID
+
+	return m.linkClaimed, m.linkClaimErr
+}
+
 func (m *userServiceRepoMock) CountPhotosByUser(
 	_ context.Context,
 	_ string,
@@ -488,5 +498,51 @@ func TestSavePhotoPassesMediaGroupID(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+func TestClaimRegistrationLink(t *testing.T) {
+	tests := []struct {
+		name    string
+		claimed bool
+	}{
+		{name: "link not sent yet", claimed: true},
+		{name: "link already sent", claimed: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &userServiceRepoMock{linkClaimed: tt.claimed}
+			service := NewPhotoService(repo)
+
+			claimed, err := service.ClaimRegistrationLink(context.Background(), 123456789)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if claimed != tt.claimed {
+				t.Fatalf("claimed = %v, want %v", claimed, tt.claimed)
+			}
+
+			if repo.linkClaimTgID != 123456789 {
+				t.Fatalf("tg id = %d, want 123456789", repo.linkClaimTgID)
+			}
+		})
+	}
+}
+
+func TestClaimRegistrationLinkError(t *testing.T) {
+	expectedErr := errors.New("mark link error")
+
+	repo := &userServiceRepoMock{linkClaimErr: expectedErr}
+	service := NewPhotoService(repo)
+
+	claimed, err := service.ClaimRegistrationLink(context.Background(), 123456789)
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("error = %v, want %v", err, expectedErr)
+	}
+
+	if claimed {
+		t.Fatal("claimed = true, want false on error")
 	}
 }

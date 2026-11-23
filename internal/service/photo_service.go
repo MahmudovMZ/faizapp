@@ -91,3 +91,11 @@ func isRoleCounted(role *string) bool {
 	}
 	return *role == models.RoleSalesRep || *role == models.RoleSupervisor
 }
+
+func (s *PhotoService) ClaimRegistrationLink(ctx context.Context, tgID int64) (bool, error) {
+	claimed, err := s.repo.MarkRegistrationLinkSent(ctx, tgID)
+	if err != nil {
+		return false, fmt.Errorf("[SERVICE] mark registration link sent: %w", err)
+	}
+	return claimed, nil
+}

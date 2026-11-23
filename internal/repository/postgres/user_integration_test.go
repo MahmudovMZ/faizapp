@@ -7,6 +7,7 @@ import (
 	"errors"
 	"math/rand/v2"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -223,5 +224,149 @@ func TestUpdateUserContact(t *testing.T) {
 	err = repo.UpdateUserContact(ctx, missingTgID, "Nobody", "+992900000004")
 	if !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("missing user: error = %v, want pgx.ErrNoRows", err)
+	}
+}
+
+func newRegistrationLinkTestRepo(t *testing.T) (context.Context, *FaizAppRepo, *pgxpool.Pool) {
+	t.Helper()
+
+	dbURL := os.Getenv("TEST_DATABASE_URL")
+	if dbURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Fatalf("create pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	return ctx, NewFaizAppRepo(pool), pool
+}
+
+// insertLinkTestUser creates a user with the given status and phone (nil = no phone).
+func insertLinkTestUser(t *testing.T, ctx context.Context, pool *pgxpool.Pool, status string, phone *string) int64 {
+	t.Helper()
+
+	tgID := randomTestTgID()
+
+	_, err := pool.Exec(
+		ctx,
+		`INSERT INTO users (tg_id, full_name, phone, status) VALUES ($1, $2, $3, $4)`,
+		tgID,
+		"Registration Link Test User",
+		phone,
+		status,
+	)
+	if err != nil {
+		t.Fatalf("create test user: %v", err)
+	}
+
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE tg_id = $1`, tgID)
+	})
+
+	return tgID
+}
+
+func TestMarkRegistrationLinkSent(t *testing.T) {
+	ctx, repo, pool := newRegistrationLinkTestRepo(t)
+
+	empty := ""
+	phone := "+992900000000"
+
+	tests := []struct {
+		name   string
+		status string
+		phone  *string
+		want   bool
+	}{
+		{name: "pending without phone", status: "pending", phone: nil, want: true},
+		{name: "pending with empty phone", status: "pending", phone: &empty, want: true},
+		{name: "pending with phone", status: "pending", phone: &phone, want: false},
+		{name: "approved", status: "approved", phone: &phone, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tgID := insertLinkTestUser(t, ctx, pool, tt.status, tt.phone)
+
+			claimed, err := repo.MarkRegistrationLinkSent(ctx, tgID)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if claimed != tt.want {
+				t.Fatalf("claimed = %v, want %v", claimed, tt.want)
+			}
+
+			if !tt.want {
+				return
+			}
+
+			claimed, err = repo.MarkRegistrationLinkSent(ctx, tgID)
+			if err != nil {
+				t.Fatalf("second call: unexpected error: %v", err)
+			}
+			if claimed {
+				t.Fatal("second call: claimed = true, want false")
+			}
+		})
+	}
+}
+
+func TestMarkRegistrationLinkSentUnknownUser(t *testing.T) {
+	ctx, repo, _ := newRegistrationLinkTestRepo(t)
+
+	claimed, err := repo.MarkRegistrationLinkSent(ctx, randomTestTgID())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if claimed {
+		t.Fatal("claimed = true for an unknown user, want false")
+	}
+}
+
+// Several workers processing photos of one new sender must send the link only once.
+func TestMarkRegistrationLinkSentConcurrent(t *testing.T) {
+	ctx, repo, pool := newRegistrationLinkTestRepo(t)
+
+	tgID := insertLinkTestUser(t, ctx, pool, "pending", nil)
+
+	const workers = 8
+
+	var (
+		wg      sync.WaitGroup
+		mu      sync.Mutex
+		claims  int
+		callErr error
+	)
+
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			claimed, err := repo.MarkRegistrationLinkSent(ctx, tgID)
+
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				callErr = err
+			}
+			if claimed {
+				claims++
+			}
+		}()
+	}
+	wg.Wait()
+
+	if callErr != nil {
+		t.Fatalf("unexpected error: %v", callErr)
+	}
+	if claims != 1 {
+		t.Fatalf("claims = %d, want exactly 1", claims)
 	}
 }
