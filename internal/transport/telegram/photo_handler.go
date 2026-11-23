@@ -15,35 +15,6 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-func (h *Handler) handlePhotoMessage(ctx context.Context, msg *tgbotapi.Message) (service.SavePhotoResult, error) {
-	if msg == nil || msg.From == nil {
-		return service.SavePhotoResult{}, errors.New("no message from user")
-	}
-	tgUserID := msg.From.ID
-	tgMessageID := msg.MessageID
-	caption := msg.Caption
-
-	if len(msg.Photo) == 0 {
-		return service.SavePhotoResult{}, errors.New("[HANDLER] photo not found")
-	}
-	photoSize := msg.Photo[len(msg.Photo)-1]
-	receivedAt := time.Unix(int64(msg.Date), 0)
-	fileID := photoSize.FileID
-
-	data, err := h.downloadTelegramFile(ctx, fileID)
-	if err != nil {
-		return service.SavePhotoResult{}, fmt.Errorf("[HANDLER] download telegram file failed: %w", err)
-	}
-
-	fullName := fmt.Sprintf("%s %s", strings.TrimSpace(msg.From.FirstName), strings.TrimSpace(msg.From.LastName))
-
-	result, err := h.PhotoService.SavePhoto(ctx, tgUserID, tgMessageID, data, caption, receivedAt, strings.TrimSpace(fullName), msg.MediaGroupID)
-	if err != nil {
-		return service.SavePhotoResult{}, fmt.Errorf("[HANDLER] save photo failed: %w", err)
-	}
-	return result, nil
-}
-
 func (h *Handler) processPhotoJob(ctx context.Context, job *models.PhotoJob) error {
 	data, err := h.downloadTelegramFile(ctx, job.FileID)
 	if err != nil {

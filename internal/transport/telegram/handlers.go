@@ -63,11 +63,7 @@ func NewBotHandler(bot *tgbotapi.BotAPI, user *service.UserService, photo *servi
 func (h *Handler) BotHandler(
 	update tgbotapi.Update,
 ) {
-	timeout := 5 * time.Second
-	if update.Message != nil && len(update.Message.Photo) > 0 {
-		timeout = h.photoTimeout
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if update.CallbackQuery != nil {
@@ -85,28 +81,8 @@ func (h *Handler) BotHandler(
 	}
 
 	chatID := update.Message.Chat.ID
-	messageID := update.Message.MessageID
 	text := strings.TrimSpace(update.Message.Text)
 	tgID := update.Message.From.ID
-	userName := update.Message.From.FirstName
-
-	if len(update.Message.Photo) > 0 {
-		result, err := h.handlePhotoMessage(ctx, update.Message)
-		if err != nil {
-			if errors.Is(err, service.ErrDuplicatePhoto) {
-				h.replyTo(chatID, messageID, rejectPhotoText)
-				return
-			}
-			log.Println(err)
-			h.replyTo(chatID, messageID, failPhotoText)
-			return
-		}
-		if result.NewSender {
-			h.mentionNewUser(chatID, messageID, tgID, userName)
-		}
-		log.Printf("[TELEGRAM] photo saved: user=%d count=%d counted=%v", tgID, result.Count, result.Counted)
-		return
-	}
 
 	stage := h.getBotState(chatID)
 
