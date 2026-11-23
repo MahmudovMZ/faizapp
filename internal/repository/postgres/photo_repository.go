@@ -87,3 +87,15 @@ func (r *FaizAppRepo) CountPhotosByDate(ctx context.Context, from time.Time, to 
 	}
 	return count, nil
 }
+
+func (r *FaizAppRepo) PhotoExistsForMessage(ctx context.Context, tgId int64, tgMsgID int) (bool, error) {
+	log.Println("[REPOSITORY] getting photo by tgId and tgMsgId")
+
+	var exists bool
+	query := `SELECT EXISTS (SELECT 1 FROM photos WHERE telegram_user_id = $1 AND telegram_message_id = $2)`
+	err := r.Pool.QueryRow(ctx, query, tgId, tgMsgID).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
+}

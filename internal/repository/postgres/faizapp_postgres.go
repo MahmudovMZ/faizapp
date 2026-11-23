@@ -29,6 +29,7 @@ type Repository interface {
 	CountPhotosByDate(ctx context.Context, from time.Time, to time.Time) (int, error)
 	CreatePendingUser(ctx context.Context, tgID int64, fullName string) (*models.User, error)
 	UpdateUserContact(ctx context.Context, tgID int64, fullName string, phone string) error
+	PhotoExistsForMessage(ctx context.Context, tgID int64, tgMsgID int) (bool, error)
 }
 
 type FaizAppRepo struct {

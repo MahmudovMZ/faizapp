@@ -59,10 +59,18 @@ func (s *PhotoService) SavePhoto(ctx context.Context, tgId int64, tgMsgId int, d
 
 	err = s.repo.CreatePhoto(ctx, photo)
 	if err != nil {
-		if errors.Is(err, postgres.ErrDuplicatePhoto) {
+		if !errors.Is(err, postgres.ErrDuplicatePhoto) {
+			return SavePhotoResult{}, fmt.Errorf("[SERVICE] saving photo: %w", err)
+		}
+
+		alreadySaved, checkErr := s.repo.PhotoExistsForMessage(ctx, tgId, tgMsgId)
+		if checkErr != nil {
+			return SavePhotoResult{}, fmt.Errorf("[SERVICE] check photo message: %w", checkErr)
+		}
+		if !alreadySaved {
 			return SavePhotoResult{}, fmt.Errorf("[SERVICE] photo already exists: %w", ErrDuplicatePhoto)
 		}
-		return SavePhotoResult{}, fmt.Errorf("[SERVICE] saving photo: %w", err)
+
 	}
 
 	num, err := s.repo.CountPhotosByUser(ctx, user.ID)
