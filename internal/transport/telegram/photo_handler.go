@@ -40,7 +40,7 @@ func (h *Handler) EnqueuePhoto(msg *tgbotapi.Message) {
 	defer cancel()
 
 	if msg == nil || msg.From == nil {
-		log.Println("[REPOSITORY] msg.From is nil")
+		log.Println("[TELEGRAM] msg.From is nil")
 		return
 	}
 
