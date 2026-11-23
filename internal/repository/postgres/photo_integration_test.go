@@ -404,3 +404,79 @@ func TestCreatePhotoMediaGroupID(t *testing.T) {
 		t.Fatalf("single photo media_group_id = %q, want NULL", *groupID)
 	}
 }
+
+func TestPhotoExistsForMessage(t *testing.T) {
+	dbURL := os.Getenv("TEST_DATABASE_URL")
+	if dbURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Fatalf("create pool: %v", err)
+	}
+	defer pool.Close()
+
+	repo := NewFaizAppRepo(pool)
+
+	tgID := randomTestTgID()
+
+	var userID string
+	err = pool.QueryRow(
+		ctx,
+		`
+		INSERT INTO users (tg_id, full_name, status)
+		VALUES ($1, $2, 'approved')
+		RETURNING id
+		`,
+		tgID,
+		"Photo Exists Test User",
+	).Scan(&userID)
+	if err != nil {
+		t.Fatalf("create test user: %v", err)
+	}
+
+	defer func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM photos WHERE user_id = $1`, userID)
+		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
+	}()
+
+	photo := &models.Photo{
+		UserID:            userID,
+		TelegramUserID:    tgID,
+		TelegramMessageID: 3001,
+		Sha256Hash:        fmt.Sprintf("photo-exists-test-hash-%d", tgID),
+		ReceivedAt:        time.Now().UTC(),
+	}
+
+	if err := repo.CreatePhoto(ctx, photo); err != nil {
+		t.Fatalf("create photo: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		tgID    int64
+		tgMsgID int
+		want    bool
+	}{
+		{name: "same sender and message", tgID: tgID, tgMsgID: 3001, want: true},
+		{name: "same sender, other message", tgID: tgID, tgMsgID: 3002, want: false},
+		{name: "other sender, same message", tgID: tgID + 1, tgMsgID: 3001, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			exists, err := repo.PhotoExistsForMessage(ctx, tt.tgID, tt.tgMsgID)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if exists != tt.want {
+				t.Fatalf("exists = %v, want %v", exists, tt.want)
+			}
+		})
+	}
+}

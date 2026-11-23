@@ -36,6 +36,18 @@ func (m *userServiceRepoMock) CreatePhoto(
 	return m.photoErr
 }
 
+func (m *userServiceRepoMock) PhotoExistsForMessage(
+	_ context.Context,
+	tgID int64,
+	tgMsgID int,
+) (bool, error) {
+	m.photoExistsCalled = true
+	m.photoExistsTgID = tgID
+	m.photoExistsMsgID = tgMsgID
+
+	return m.photoExists, m.photoExistsErr
+}
+
 func (m *userServiceRepoMock) CountPhotosByUser(
 	_ context.Context,
 	_ string,
@@ -133,6 +145,14 @@ func TestSavePhotoCreateError(t *testing.T) {
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("error = %v, want %v", err, expectedErr)
 	}
+
+	if errors.Is(err, ErrDuplicatePhoto) {
+		t.Fatal("a database error must not be reported as a duplicate")
+	}
+
+	if repo.photoExistsCalled {
+		t.Fatal("PhotoExistsForMessage must not be called for a non-duplicate error")
+	}
 }
 
 func TestSavePhotoCountError(t *testing.T) {
@@ -188,6 +208,82 @@ func TestSavePhotoDuplicate(t *testing.T) {
 			"error = %v, want ErrDuplicatePhoto",
 			err,
 		)
+	}
+
+	if !repo.photoExistsCalled {
+		t.Fatal("PhotoExistsForMessage was not called")
+	}
+}
+
+// A retry of a message that an earlier attempt already saved is a success, not a duplicate.
+func TestSavePhotoDuplicateFromSameMessage(t *testing.T) {
+	repo := &userServiceRepoMock{
+		user: &models.User{
+			ID: "user-1",
+		},
+		photoErr:    postgres.ErrDuplicatePhoto,
+		photoExists: true,
+		photoCount:  3,
+	}
+
+	service := NewPhotoService(repo)
+
+	result, err := service.SavePhoto(
+		context.Background(),
+		123456789,
+		10,
+		[]byte("photo data"),
+		"",
+		time.Now(),
+		"Test User",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Count != 3 {
+		t.Fatalf("count = %d, want 3", result.Count)
+	}
+
+	if repo.photoExistsTgID != 123456789 || repo.photoExistsMsgID != 10 {
+		t.Fatalf(
+			"checked message = (%d, %d), want (123456789, 10)",
+			repo.photoExistsTgID,
+			repo.photoExistsMsgID,
+		)
+	}
+}
+
+func TestSavePhotoDuplicateCheckError(t *testing.T) {
+	expectedErr := errors.New("check photo error")
+
+	repo := &userServiceRepoMock{
+		user: &models.User{
+			ID: "user-1",
+		},
+		photoErr:       postgres.ErrDuplicatePhoto,
+		photoExistsErr: expectedErr,
+	}
+
+	service := NewPhotoService(repo)
+
+	_, err := service.SavePhoto(
+		context.Background(),
+		123456789,
+		10,
+		[]byte("photo data"),
+		"",
+		time.Now(),
+		"Test User",
+		"",
+	)
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("error = %v, want %v", err, expectedErr)
+	}
+
+	if errors.Is(err, ErrDuplicatePhoto) {
+		t.Fatal("a failed check must not be reported as a duplicate")
 	}
 }
 

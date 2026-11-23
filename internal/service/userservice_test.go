@@ -47,6 +47,12 @@ type userServiceRepoMock struct {
 	photoCount    int
 	photoCountErr error
 
+	photoExists       bool
+	photoExistsErr    error
+	photoExistsCalled bool
+	photoExistsTgID   int64
+	photoExistsMsgID  int
+
 	pendingUser     *models.User
 	pendingErr      error
 	pendingCalled   bool
