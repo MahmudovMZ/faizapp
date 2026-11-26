@@ -1,6 +1,8 @@
 package service
 
-import "errors"
+import (
+	"errors"
+)
 
 var ErrInvalidCoefficient = errors.New("coefficient must be greater than zero")
 

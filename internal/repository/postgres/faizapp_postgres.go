@@ -26,11 +26,11 @@ type Repository interface {
 	AssignSVWorkGroupAndUpdate(ctx context.Context, tgID int64, status string, role *string, supervisorID string, workGroupID int) error
 	CreatePhoto(ctx context.Context, photo *models.Photo) error
 	CountPhotosByUser(ctx context.Context, userID string) (int, error)
-	CountPhotosByDate(ctx context.Context, from time.Time, to time.Time) (int, error)
 	CreatePendingUser(ctx context.Context, tgID int64, fullName string) (*models.User, error)
 	UpdateUserContact(ctx context.Context, tgID int64, fullName string, phone string) error
 	PhotoExistsForMessage(ctx context.Context, tgID int64, tgMsgID int) (bool, error)
 	MarkRegistrationLinkSent(ctx context.Context, tgID int64) (bool, error)
+	PhotoReportByPeriod(ctx context.Context, startDate time.Time, endDate time.Time) ([]models.ReportRow, error)
 }
 
 type FaizAppRepo struct {

@@ -58,17 +58,18 @@ func (m *userServiceRepoMock) MarkRegistrationLinkSent(
 	return m.linkClaimed, m.linkClaimErr
 }
 
+// PhotoReportByPeriod is not used by PhotoService; the report service has its own store.
+func (m *userServiceRepoMock) PhotoReportByPeriod(
+	_ context.Context,
+	_ time.Time,
+	_ time.Time,
+) ([]models.ReportRow, error) {
+	return nil, nil
+}
+
 func (m *userServiceRepoMock) CountPhotosByUser(
 	_ context.Context,
 	_ string,
-) (int, error) {
-	return m.photoCount, m.photoCountErr
-}
-
-func (m *userServiceRepoMock) CountPhotosByDate(
-	_ context.Context,
-	_ time.Time,
-	_ time.Time,
 ) (int, error) {
 	return m.photoCount, m.photoCountErr
 }
