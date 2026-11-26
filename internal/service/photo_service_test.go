@@ -405,7 +405,7 @@ func TestSavePhotoGetUserError(t *testing.T) {
 func TestSavePhotoCountedByRole(t *testing.T) {
 	salesRep := models.RoleSalesRep
 	supervisor := models.RoleSupervisor
-	dispatcher := models.RoleDispatcher
+	dispatcher := models.RoleDispatcherMerch
 	seniorSupervisor := models.RoleSeniorSupervisor
 
 	tests := []struct {

@@ -3,6 +3,7 @@ package telegram
 import (
 	"testing"
 
+	"github.com/MahmudovMZ/faizapp/internal/models"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
@@ -177,5 +178,46 @@ func TestIsOwnTelegramContact(t *testing.T) {
 				t.Fatalf("isOwnTelegramContact() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRoleTitleByID(t *testing.T) {
+	tests := []struct {
+		id   int
+		want string
+	}{
+		{1, models.RoleSalesRep},
+		{2, models.RoleSupervisor},
+		{3, models.RoleDispatcherMerch},
+		{4, models.RoleDispatcherAnalytics},
+		{5, models.RoleCommercialDirector},
+		{6, models.RoleSeniorSupervisor},
+	}
+
+	for _, tt := range tests {
+		got, ok := roleTitleByID(tt.id)
+		if !ok || got != tt.want {
+			t.Fatalf("roleTitleByID(%d) = %q, %v; want %q, true", tt.id, got, ok, tt.want)
+		}
+	}
+
+	if _, ok := roleTitleByID(99); ok {
+		t.Fatal("roleTitleByID(99) found a role, want none")
+	}
+}
+
+func TestRoleMenuIDsAndTitlesAreUnique(t *testing.T) {
+	ids := map[int]bool{}
+	titles := map[string]bool{}
+
+	for _, role := range models.Role_Menu {
+		if ids[role.Id] {
+			t.Fatalf("role id %d is used twice", role.Id)
+		}
+		if titles[role.Title] {
+			t.Fatalf("role title %q is used twice", role.Title)
+		}
+		ids[role.Id] = true
+		titles[role.Title] = true
 	}
 }

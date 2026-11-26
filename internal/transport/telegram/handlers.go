@@ -382,7 +382,7 @@ func (h *Handler) handleAdminCallback(
 			break
 		}
 
-		if role == models.RoleDispatcher || role == models.RoleCommercialDirector || role == models.RoleSeniorSupervisor {
+		if role == models.RoleDispatcherMerch || role == models.RoleCommercialDirector || role == models.RoleDispatcherAnalytics || role == models.RoleSeniorSupervisor {
 			if err := h.UserService.ApproveUser(ctx, parsed.TgID, role); err != nil {
 				log.Println("[TELEGRAM] failed to approve user:", err)
 				callbackText = "Не удалось назначить роль сотрудника"
