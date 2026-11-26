@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/MahmudovMZ/faizapp/internal/models"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -66,24 +65,6 @@ func (r *FaizAppRepo) CountPhotosByUser(ctx context.Context, userID string) (int
 	err := row.Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("count photos by user: %w", err)
-	}
-	return count, nil
-}
-
-func (r *FaizAppRepo) CountPhotosByDate(ctx context.Context, from time.Time, to time.Time) (int, error) {
-	log.Println("[REPOSITORY] counting photos by date")
-
-	query := `SELECT COUNT(*)
-				FROM photos p
-				JOIN users u ON u.id = p.user_id
-				WHERE u.role IN ($3, $4)
-				AND p.received_at >= $1
-				AND p.received_at < $2`
-	var count int
-	row := r.Pool.QueryRow(ctx, query, from, to, models.RoleSalesRep, models.RoleSupervisor)
-	err := row.Scan(&count)
-	if err != nil {
-		return 0, fmt.Errorf("count photos by date: %w", err)
 	}
 	return count, nil
 }
