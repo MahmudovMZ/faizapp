@@ -232,3 +232,85 @@ func TestSRCodesReportPositionRequiredAndUnique(t *testing.T) {
 		t.Fatalf("insert with a free position failed: %v", err)
 	}
 }
+
+// Migration 25: a first photo after late_after is late; «Опт Фаровон» is late after 10:00.
+func TestTerritoriesLateAfter(t *testing.T) {
+	dbURL := os.Getenv("TEST_DATABASE_URL")
+	if dbURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Fatalf("create pool: %v", err)
+	}
+	defer pool.Close()
+
+	rows, err := pool.Query(ctx, `SELECT name, to_char(late_after, 'HH24:MI') FROM territories ORDER BY id`)
+	if err != nil {
+		t.Fatalf("query territories: %v", err)
+	}
+	defer rows.Close()
+
+	var checked int
+	for rows.Next() {
+		var name, lateAfter string
+		if err := rows.Scan(&name, &lateAfter); err != nil {
+			t.Fatalf("scan territory: %v", err)
+		}
+		checked++
+
+		want := "10:30"
+		if name == "Опт Фаровон" {
+			want = "10:00"
+		}
+		if lateAfter != want {
+			t.Errorf("%s: late after = %s, want %s", name, lateAfter, want)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read territories: %v", err)
+	}
+	if checked == 0 {
+		t.Fatal("no territories found")
+	}
+
+	// Each attempt runs in a transaction that is always rolled back.
+	tryInsert := func(withNull bool) (string, error) {
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatalf("begin: %v", err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+
+		query := `
+			INSERT INTO territories (name, work_group_id)
+			SELECT 'TEST-LATE-AFTER', work_group_id FROM territories LIMIT 1
+			RETURNING to_char(late_after, 'HH24:MI')`
+		if withNull {
+			query = `
+			INSERT INTO territories (name, work_group_id, late_after)
+			SELECT 'TEST-LATE-AFTER', work_group_id, NULL FROM territories LIMIT 1
+			RETURNING to_char(late_after, 'HH24:MI')`
+		}
+
+		var lateAfter string
+		err = tx.QueryRow(ctx, query).Scan(&lateAfter)
+		return lateAfter, err
+	}
+
+	lateAfter, err := tryInsert(false)
+	if err != nil {
+		t.Fatalf("insert territory without late_after: %v", err)
+	}
+	if lateAfter != "10:30" {
+		t.Fatalf("new territory late after = %s, want the default 10:30", lateAfter)
+	}
+
+	if _, err := tryInsert(true); err == nil {
+		t.Fatal("insert with late_after NULL succeeded, want NOT NULL error")
+	}
+}

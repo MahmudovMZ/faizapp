@@ -1,4 +1,4 @@
--- 1. Add the column, empty for now; numbers must not repeat
+    -- 1. Add the column, empty for now; numbers must not repeat
 ALTER TABLE sr_codes
     ADD COLUMN IF NOT EXISTS position_in_report INTEGER UNIQUE;
 
