@@ -159,6 +159,55 @@ func TestPhotoReportByPeriod(t *testing.T) {
 		}
 	})
 
+	t.Run("every row has its territory and late time", func(t *testing.T) {
+		type place struct {
+			territory string
+			lateAfter int
+		}
+
+		dbRows, err := pool.Query(
+			ctx,
+			`
+			SELECT s.code, t.name, EXTRACT(EPOCH FROM t.late_after)::int
+			FROM sr_codes s
+			JOIN territories t ON t.id = s.territory_id
+			`,
+		)
+		if err != nil {
+			t.Fatalf("query territories of codes: %v", err)
+		}
+		defer dbRows.Close()
+
+		want := map[string]place{}
+		for dbRows.Next() {
+			var code string
+			var p place
+			if err := dbRows.Scan(&code, &p.territory, &p.lateAfter); err != nil {
+				t.Fatalf("scan territory of code: %v", err)
+			}
+			want[code] = p
+		}
+		if err := dbRows.Err(); err != nil {
+			t.Fatalf("read territories of codes: %v", err)
+		}
+
+		for _, row := range rows {
+			w := want[row.SRCode]
+			if row.Territory != w.territory || row.LateAfter != w.lateAfter {
+				t.Fatalf("%s: territory/late = %q/%d, want %q/%d",
+					row.SRCode, row.Territory, row.LateAfter, w.territory, w.lateAfter)
+			}
+
+			wantLate := 37800 // 10:30
+			if row.Territory == "Опт Фаровон" {
+				wantLate = 36000 // 10:00
+			}
+			if row.LateAfter != wantLate {
+				t.Fatalf("%s (%s): late after = %d seconds, want %d", row.SRCode, row.Territory, row.LateAfter, wantLate)
+			}
+		}
+	})
+
 	t.Run("rows follow the report order", func(t *testing.T) {
 		var wantFirst, wantLast string
 		err := pool.QueryRow(

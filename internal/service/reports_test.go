@@ -132,20 +132,21 @@ func TestDailyReportAsksForTheDushanbeDay(t *testing.T) {
 }
 
 func TestDailyReportFillsMerchForEveryRow(t *testing.T) {
-	first := time.Date(2026, time.November, 24, 9, 15, 0, 0, dushanbeTimeZone)
+	onTime := time.Date(2026, time.November, 24, 9, 15, 0, 0, dushanbeTimeZone)
+	const at1030 = 10*3600 + 30*60
 
 	store := &reportStoreMock{
 		rows: []models.ReportRow{
-			{SRCode: "SAM-1", FullName: "Иванов Иван", PhotosNum: 10, PhotoPerUnit: 4, FirstPhotoAt: &first},
-			{SRCode: "SAM-2", FullName: "Петров Пётр", PhotosNum: 1, PhotoPerUnit: 4, FirstPhotoAt: &first},
-			{SRCode: "SAE-1", FullName: "Сидоров Сидор", PhotosNum: 7, PhotoPerUnit: 2, FirstPhotoAt: &first},
-			{SRCode: "SAM-3", FullName: "Без Фото", PhotosNum: 0, PhotoPerUnit: 4},
-			{SRCode: "SAM-4", FullName: "", PhotosNum: 0, PhotoPerUnit: 4},
+			{SRCode: "SAM-1", FullName: "Иванов Иван", PhotosNum: 10, PhotoPerUnit: 4, FirstPhotoAt: &onTime, LateAfter: at1030},
+			{SRCode: "SAM-2", FullName: "Петров Пётр", PhotosNum: 1, PhotoPerUnit: 4, FirstPhotoAt: &onTime, LateAfter: at1030},
+			{SRCode: "SAE-1", FullName: "Сидоров Сидор", PhotosNum: 7, PhotoPerUnit: 2, FirstPhotoAt: &onTime, LateAfter: at1030},
+			{SRCode: "SAM-3", FullName: "Без Фото", PhotosNum: 0, PhotoPerUnit: 4, LateAfter: at1030},
+			{SRCode: "SAM-4", FullName: "", PhotosNum: 0, PhotoPerUnit: 4, LateAfter: at1030},
 		},
 	}
 	service := NewReportService(store)
 
-	rows, err := service.DailyReport(context.Background(), first)
+	report, err := service.DailyReport(context.Background(), onTime)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -161,21 +162,76 @@ func TestDailyReportFillsMerchForEveryRow(t *testing.T) {
 		{"SAM-4", 0}, // vacant code
 	}
 
-	if len(rows) != len(want) {
-		t.Fatalf("got %d rows, want %d", len(rows), len(want))
+	if len(report.All) != len(want) {
+		t.Fatalf("All has %d rows, want %d", len(report.All), len(want))
 	}
 
 	for i, w := range want {
-		if rows[i].SRCode != w.code {
-			t.Fatalf("row %d code = %s, want %s: order must be kept", i, rows[i].SRCode, w.code)
+		if report.All[i].SRCode != w.code {
+			t.Fatalf("All row %d code = %s, want %s: order must be kept", i, report.All[i].SRCode, w.code)
 		}
-		if rows[i].Merch != w.merch {
-			t.Fatalf("%s merch = %d, want %d", w.code, rows[i].Merch, w.merch)
+		if report.All[i].Merch != w.merch {
+			t.Fatalf("%s merch = %d, want %d", w.code, report.All[i].Merch, w.merch)
 		}
 	}
 
-	if rows[0].FullName != "Иванов Иван" || rows[0].PhotosNum != 10 || rows[0].FirstPhotoAt != &first {
-		t.Fatalf("other fields of the row were changed: %+v", rows[0])
+	if report.All[0].FullName != "Иванов Иван" || report.All[0].PhotosNum != 10 || report.All[0].FirstPhotoAt != &onTime {
+		t.Fatalf("other fields of the row were changed: %+v", report.All[0])
+	}
+}
+
+func TestDailyReportSplitsNotSentAndLate(t *testing.T) {
+	const at1030 = 10*3600 + 30*60
+	const at1000 = 10 * 3600
+
+	at := func(h, m int) *time.Time {
+		v := time.Date(2026, time.November, 24, h, m, 0, 0, dushanbeTimeZone)
+		return &v
+	}
+	afterGrace := func(h, m int) *time.Time {
+		v := at(h, m).Add(lateGrace + time.Minute)
+		return &v
+	}
+
+	store := &reportStoreMock{
+		rows: []models.ReportRow{
+			{SRCode: "SAM-1", FullName: "Вовремя", PhotosNum: 4, PhotoPerUnit: 4, FirstPhotoAt: at(9, 50), LateAfter: at1030},
+			{SRCode: "SAM-2", FullName: "Опоздал", PhotosNum: 4, PhotoPerUnit: 4, FirstPhotoAt: afterGrace(10, 30), LateAfter: at1030},
+			{SRCode: "SAM-3", FullName: "Не прислал", PhotosNum: 0, PhotoPerUnit: 4, LateAfter: at1030},
+			{SRCode: "SAM-4", FullName: "", PhotosNum: 0, PhotoPerUnit: 4, LateAfter: at1030},
+			{SRCode: "SADF1", FullName: "Опт опоздал", PhotosNum: 2, PhotoPerUnit: 4, FirstPhotoAt: afterGrace(10, 0), LateAfter: at1000},
+			{SRCode: "SADF2", FullName: "Опт вовремя", PhotosNum: 2, PhotoPerUnit: 4, FirstPhotoAt: at(10, 0), LateAfter: at1000},
+		},
+	}
+	service := NewReportService(store)
+
+	report, err := service.DailyReport(context.Background(), *at(16, 0))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	codes := func(rows []models.ReportRow) []string {
+		var out []string
+		for _, row := range rows {
+			out = append(out, row.SRCode)
+		}
+		return out
+	}
+
+	if got := codes(report.NotSent); len(got) != 1 || got[0] != "SAM-3" {
+		t.Fatalf("NotSent = %v, want [SAM-3]: vacant SAM-4 must not be listed", got)
+	}
+
+	if got := codes(report.Late); len(got) != 2 || got[0] != "SAM-2" || got[1] != "SADF1" {
+		t.Fatalf("Late = %v, want [SAM-2 SADF1]", got)
+	}
+
+	if len(report.All) != 6 {
+		t.Fatalf("All has %d rows, want all 6", len(report.All))
+	}
+
+	if report.Late[0].Merch != 1 {
+		t.Fatalf("late row merch = %d, want 1: rows must be copied after merch is set", report.Late[0].Merch)
 	}
 }
 
@@ -184,12 +240,12 @@ func TestDailyReportStoreError(t *testing.T) {
 	store := &reportStoreMock{err: dbErr}
 	service := NewReportService(store)
 
-	rows, err := service.DailyReport(context.Background(), time.Now())
+	report, err := service.DailyReport(context.Background(), time.Now())
 	if !errors.Is(err, dbErr) {
 		t.Fatalf("error = %v, want %v", err, dbErr)
 	}
-	if rows != nil {
-		t.Fatalf("rows = %v, want nil on error", rows)
+	if report != nil {
+		t.Fatalf("report = %+v, want nil on error", report)
 	}
 }
 
@@ -202,26 +258,76 @@ func TestDailyReportInvalidCoefficient(t *testing.T) {
 	}
 	service := NewReportService(store)
 
-	rows, err := service.DailyReport(context.Background(), time.Now())
+	report, err := service.DailyReport(context.Background(), time.Now())
 	if !errors.Is(err, ErrInvalidCoefficient) {
 		t.Fatalf("error = %v, want ErrInvalidCoefficient", err)
 	}
 	if !strings.Contains(err.Error(), "SAE-7") {
 		t.Fatalf("error %q does not name the broken code SAE-7", err)
 	}
-	if rows != nil {
-		t.Fatalf("rows = %v, want nil on error", rows)
+	if report != nil {
+		t.Fatalf("report = %+v, want nil on error", report)
 	}
 }
 
 func TestDailyReportEmpty(t *testing.T) {
 	service := NewReportService(&reportStoreMock{rows: nil})
 
-	rows, err := service.DailyReport(context.Background(), time.Now())
+	report, err := service.DailyReport(context.Background(), time.Now())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(rows) != 0 {
-		t.Fatalf("rows = %v, want none", rows)
+	if report == nil {
+		t.Fatal("report = nil, want an empty report")
+	}
+	if len(report.All) != 0 || len(report.NotSent) != 0 || len(report.Late) != 0 {
+		t.Fatalf("report = %+v, want empty lists", report)
+	}
+}
+
+func TestIsLate(t *testing.T) {
+	const at1030 = 10*3600 + 30*60
+	const at1000 = 10 * 3600
+
+	// at returns a Dushanbe time on a fixed day, shifted by extra.
+	at := func(h, m int, extra time.Duration) *time.Time {
+		v := time.Date(2026, time.November, 27, h, m, 0, 0, dushanbeTimeZone).Add(extra)
+		return &v
+	}
+
+	tests := []struct {
+		name      string
+		photo     *time.Time
+		lateAfter int
+		want      bool
+	}{
+		{name: "no photo is not late", photo: nil, lateAfter: at1030, want: false},
+		{name: "before the cutoff", photo: at(10, 25, 0), lateAfter: at1030, want: false},
+		{name: "exactly at the cutoff", photo: at(10, 30, 0), lateAfter: at1030, want: false},
+		{name: "inside the grace time", photo: at(10, 30, lateGrace/2), lateAfter: at1030, want: false},
+		{name: "exactly at the end of the grace time", photo: at(10, 30, lateGrace), lateAfter: at1030, want: false},
+		{name: "one second after the grace time", photo: at(10, 30, lateGrace+time.Second), lateAfter: at1030, want: true},
+		{name: "much later", photo: at(13, 0, 0), lateAfter: at1030, want: true},
+		{name: "ОПТ cutoff 10:00, after its grace", photo: at(10, 0, lateGrace+time.Minute), lateAfter: at1000, want: true},
+		{name: "ОПТ cutoff 10:00, inside its grace", photo: at(10, 0, lateGrace-time.Minute), lateAfter: at1000, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isLate(tt.photo, tt.lateAfter); got != tt.want {
+				t.Fatalf("isLate(%v, %d) = %v, want %v", tt.photo, tt.lateAfter, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsLateUsesDushanbeTime(t *testing.T) {
+	// 05:45 UTC is 10:45 in Dushanbe.
+	photo := time.Date(2026, time.November, 27, 5, 45, 0, 0, time.UTC)
+	lateAfter := 10*3600 + 30*60
+
+	want := 10*3600+45*60 > lateAfter+int(lateGrace.Seconds())
+	if got := isLate(&photo, lateAfter); got != want {
+		t.Fatalf("isLate(05:45 UTC) = %v, want %v (10:45 in Dushanbe)", got, want)
 	}
 }
