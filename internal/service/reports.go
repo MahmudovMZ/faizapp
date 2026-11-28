@@ -21,21 +21,21 @@ func NewReportService(store ReportStore) *ReportService {
 	return &ReportService{store: store}
 }
 
-var dushanbeTimeZone = time.FixedZone("Dushanbe", 5*60*60)
+var DushanbeTimeZone = time.FixedZone("Dushanbe", 5*60*60)
 
 const lateGrace = 10 * time.Minute
 
 func dayBounds(moment time.Time) (time.Time, time.Time) {
-	inDushanbe := moment.In(dushanbeTimeZone)
+	inDushanbe := moment.In(DushanbeTimeZone)
 	year, month, day := inDushanbe.Date()
-	from := time.Date(year, month, day, 0, 0, 0, 0, dushanbeTimeZone)
+	from := time.Date(year, month, day, 0, 0, 0, 0, DushanbeTimeZone)
 	to := from.AddDate(0, 0, 1)
 	return from, to
 }
 func monthToDateBounds(moment time.Time) (time.Time, time.Time) {
-	inDushanbe := moment.In(dushanbeTimeZone)
+	inDushanbe := moment.In(DushanbeTimeZone)
 	year, month, _ := inDushanbe.Date()
-	from := time.Date(year, month, 1, 0, 0, 0, 0, dushanbeTimeZone)
+	from := time.Date(year, month, 1, 0, 0, 0, 0, DushanbeTimeZone)
 	_, to := dayBounds(moment)
 	return from, to
 }
@@ -97,7 +97,7 @@ func isLate(firstPhoto *time.Time, lateAfter int) bool {
 	if firstPhoto == nil {
 		return false
 	}
-	receivedAtInDushanbe := firstPhoto.In(dushanbeTimeZone)
+	receivedAtInDushanbe := firstPhoto.In(DushanbeTimeZone)
 
 	inDushanbeSec := receivedAtInDushanbe.Hour()*3600 + receivedAtInDushanbe.Minute()*60 + receivedAtInDushanbe.Second()
 	graceSec := int(lateGrace.Seconds())

@@ -22,39 +22,39 @@ func TestDayBounds(t *testing.T) {
 	}{
 		{
 			name:     "afternoon in Dushanbe",
-			moment:   time.Date(2026, time.November, 24, 16, 0, 0, 0, dushanbeTimeZone),
-			wantFrom: time.Date(2026, time.November, 24, 0, 0, 0, 0, dushanbeTimeZone),
-			wantTo:   time.Date(2026, time.November, 25, 0, 0, 0, 0, dushanbeTimeZone),
+			moment:   time.Date(2026, time.November, 24, 16, 0, 0, 0, DushanbeTimeZone),
+			wantFrom: time.Date(2026, time.November, 24, 0, 0, 0, 0, DushanbeTimeZone),
+			wantTo:   time.Date(2026, time.November, 25, 0, 0, 0, 0, DushanbeTimeZone),
 		},
 		{
 			name:     "late evening UTC is already the next day in Dushanbe",
 			moment:   time.Date(2026, time.November, 24, 23, 30, 0, 0, utc),
-			wantFrom: time.Date(2026, time.November, 25, 0, 0, 0, 0, dushanbeTimeZone),
-			wantTo:   time.Date(2026, time.November, 26, 0, 0, 0, 0, dushanbeTimeZone),
+			wantFrom: time.Date(2026, time.November, 25, 0, 0, 0, 0, DushanbeTimeZone),
+			wantTo:   time.Date(2026, time.November, 26, 0, 0, 0, 0, DushanbeTimeZone),
 		},
 		{
 			name:     "one second before midnight in Dushanbe is still the same day",
 			moment:   time.Date(2026, time.November, 24, 18, 59, 59, 0, utc),
-			wantFrom: time.Date(2026, time.November, 24, 0, 0, 0, 0, dushanbeTimeZone),
-			wantTo:   time.Date(2026, time.November, 25, 0, 0, 0, 0, dushanbeTimeZone),
+			wantFrom: time.Date(2026, time.November, 24, 0, 0, 0, 0, DushanbeTimeZone),
+			wantTo:   time.Date(2026, time.November, 25, 0, 0, 0, 0, DushanbeTimeZone),
 		},
 		{
 			name:     "exactly midnight in Dushanbe starts the day",
-			moment:   time.Date(2026, time.November, 24, 0, 0, 0, 0, dushanbeTimeZone),
-			wantFrom: time.Date(2026, time.November, 24, 0, 0, 0, 0, dushanbeTimeZone),
-			wantTo:   time.Date(2026, time.November, 25, 0, 0, 0, 0, dushanbeTimeZone),
+			moment:   time.Date(2026, time.November, 24, 0, 0, 0, 0, DushanbeTimeZone),
+			wantFrom: time.Date(2026, time.November, 24, 0, 0, 0, 0, DushanbeTimeZone),
+			wantTo:   time.Date(2026, time.November, 25, 0, 0, 0, 0, DushanbeTimeZone),
 		},
 		{
 			name:     "last day of the month",
-			moment:   time.Date(2026, time.November, 30, 12, 0, 0, 0, dushanbeTimeZone),
-			wantFrom: time.Date(2026, time.November, 30, 0, 0, 0, 0, dushanbeTimeZone),
-			wantTo:   time.Date(2026, time.December, 1, 0, 0, 0, 0, dushanbeTimeZone),
+			moment:   time.Date(2026, time.November, 30, 12, 0, 0, 0, DushanbeTimeZone),
+			wantFrom: time.Date(2026, time.November, 30, 0, 0, 0, 0, DushanbeTimeZone),
+			wantTo:   time.Date(2026, time.December, 1, 0, 0, 0, 0, DushanbeTimeZone),
 		},
 		{
 			name:     "last day of the year",
 			moment:   time.Date(2026, time.December, 31, 20, 0, 0, 0, utc),
-			wantFrom: time.Date(2027, time.January, 1, 0, 0, 0, 0, dushanbeTimeZone),
-			wantTo:   time.Date(2027, time.January, 2, 0, 0, 0, 0, dushanbeTimeZone),
+			wantFrom: time.Date(2027, time.January, 1, 0, 0, 0, 0, DushanbeTimeZone),
+			wantTo:   time.Date(2027, time.January, 2, 0, 0, 0, 0, DushanbeTimeZone),
 		},
 	}
 
@@ -73,7 +73,7 @@ func TestDayBounds(t *testing.T) {
 }
 
 func TestDayBoundsCoverExactly24Hours(t *testing.T) {
-	from, to := dayBounds(time.Date(2026, time.November, 24, 9, 0, 0, 0, dushanbeTimeZone))
+	from, to := dayBounds(time.Date(2026, time.November, 24, 9, 0, 0, 0, DushanbeTimeZone))
 
 	if got := to.Sub(from); got != 24*time.Hour {
 		t.Fatalf("day length = %v, want 24h", got)
@@ -81,7 +81,7 @@ func TestDayBoundsCoverExactly24Hours(t *testing.T) {
 }
 
 func TestDushanbeTimeZoneIsUTCPlusFive(t *testing.T) {
-	_, offset := time.Date(2026, time.July, 1, 0, 0, 0, 0, dushanbeTimeZone).Zone()
+	_, offset := time.Date(2026, time.July, 1, 0, 0, 0, 0, DushanbeTimeZone).Zone()
 
 	if offset != 5*60*60 {
 		t.Fatalf("offset = %d seconds, want %d (UTC+5)", offset, 5*60*60)
@@ -134,8 +134,8 @@ func TestDailyReportAsksForTheDushanbeDay(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	wantFrom := time.Date(2026, time.November, 25, 0, 0, 0, 0, dushanbeTimeZone)
-	wantTo := time.Date(2026, time.November, 26, 0, 0, 0, 0, dushanbeTimeZone)
+	wantFrom := time.Date(2026, time.November, 25, 0, 0, 0, 0, DushanbeTimeZone)
+	wantTo := time.Date(2026, time.November, 26, 0, 0, 0, 0, DushanbeTimeZone)
 
 	if !store.called {
 		t.Fatal("the store was not called")
@@ -146,7 +146,7 @@ func TestDailyReportAsksForTheDushanbeDay(t *testing.T) {
 }
 
 func TestDailyReportFillsMerchForEveryRow(t *testing.T) {
-	onTime := time.Date(2026, time.November, 24, 9, 15, 0, 0, dushanbeTimeZone)
+	onTime := time.Date(2026, time.November, 24, 9, 15, 0, 0, DushanbeTimeZone)
 	const at1030 = 10*3600 + 30*60
 
 	store := &reportStoreMock{
@@ -199,7 +199,7 @@ func TestDailyReportSplitsNotSentAndLate(t *testing.T) {
 	const at1000 = 10 * 3600
 
 	at := func(h, m int) *time.Time {
-		v := time.Date(2026, time.November, 24, h, m, 0, 0, dushanbeTimeZone)
+		v := time.Date(2026, time.November, 24, h, m, 0, 0, DushanbeTimeZone)
 		return &v
 	}
 	afterGrace := func(h, m int) *time.Time {
@@ -305,7 +305,7 @@ func TestIsLate(t *testing.T) {
 
 	// at returns a Dushanbe time on a fixed day, shifted by extra.
 	at := func(h, m int, extra time.Duration) *time.Time {
-		v := time.Date(2026, time.November, 27, h, m, 0, 0, dushanbeTimeZone).Add(extra)
+		v := time.Date(2026, time.November, 27, h, m, 0, 0, DushanbeTimeZone).Add(extra)
 		return &v
 	}
 
@@ -355,27 +355,27 @@ func TestMonthToDateBounds(t *testing.T) {
 	}{
 		{
 			name:     "middle of the month",
-			moment:   time.Date(2026, time.November, 28, 16, 0, 0, 0, dushanbeTimeZone),
-			wantFrom: time.Date(2026, time.November, 1, 0, 0, 0, 0, dushanbeTimeZone),
-			wantTo:   time.Date(2026, time.November, 29, 0, 0, 0, 0, dushanbeTimeZone),
+			moment:   time.Date(2026, time.November, 28, 16, 0, 0, 0, DushanbeTimeZone),
+			wantFrom: time.Date(2026, time.November, 1, 0, 0, 0, 0, DushanbeTimeZone),
+			wantTo:   time.Date(2026, time.November, 29, 0, 0, 0, 0, DushanbeTimeZone),
 		},
 		{
 			name:     "first day of the month covers only that day",
-			moment:   time.Date(2026, time.December, 1, 16, 0, 0, 0, dushanbeTimeZone),
-			wantFrom: time.Date(2026, time.December, 1, 0, 0, 0, 0, dushanbeTimeZone),
-			wantTo:   time.Date(2026, time.December, 2, 0, 0, 0, 0, dushanbeTimeZone),
+			moment:   time.Date(2026, time.December, 1, 16, 0, 0, 0, DushanbeTimeZone),
+			wantFrom: time.Date(2026, time.December, 1, 0, 0, 0, 0, DushanbeTimeZone),
+			wantTo:   time.Date(2026, time.December, 2, 0, 0, 0, 0, DushanbeTimeZone),
 		},
 		{
 			name:     "last day of the year",
-			moment:   time.Date(2026, time.December, 31, 16, 0, 0, 0, dushanbeTimeZone),
-			wantFrom: time.Date(2026, time.December, 1, 0, 0, 0, 0, dushanbeTimeZone),
-			wantTo:   time.Date(2027, time.January, 1, 0, 0, 0, 0, dushanbeTimeZone),
+			moment:   time.Date(2026, time.December, 31, 16, 0, 0, 0, DushanbeTimeZone),
+			wantFrom: time.Date(2026, time.December, 1, 0, 0, 0, 0, DushanbeTimeZone),
+			wantTo:   time.Date(2027, time.January, 1, 0, 0, 0, 0, DushanbeTimeZone),
 		},
 		{
 			name:     "late evening UTC on the 30th is already the 1st in Dushanbe",
 			moment:   time.Date(2026, time.November, 30, 21, 0, 0, 0, time.UTC),
-			wantFrom: time.Date(2026, time.December, 1, 0, 0, 0, 0, dushanbeTimeZone),
-			wantTo:   time.Date(2026, time.December, 2, 0, 0, 0, 0, dushanbeTimeZone),
+			wantFrom: time.Date(2026, time.December, 1, 0, 0, 0, 0, DushanbeTimeZone),
+			wantTo:   time.Date(2026, time.December, 2, 0, 0, 0, 0, DushanbeTimeZone),
 		},
 	}
 
@@ -411,7 +411,7 @@ func TestMonthToDateMerchSumsDailyMerchPerCode(t *testing.T) {
 	}
 	service := NewReportService(store)
 
-	rows, err := service.MonthToDateMerch(context.Background(), time.Date(2026, time.November, 28, 16, 0, 0, 0, dushanbeTimeZone))
+	rows, err := service.MonthToDateMerch(context.Background(), time.Date(2026, time.November, 28, 16, 0, 0, 0, DushanbeTimeZone))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -472,13 +472,13 @@ func TestMonthToDateMerchAsksForTheMonth(t *testing.T) {
 	store := &reportStoreMock{}
 	service := NewReportService(store)
 
-	moment := time.Date(2026, time.November, 28, 16, 0, 0, 0, dushanbeTimeZone)
+	moment := time.Date(2026, time.November, 28, 16, 0, 0, 0, DushanbeTimeZone)
 	if _, err := service.MonthToDateMerch(context.Background(), moment); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	wantFrom := time.Date(2026, time.November, 1, 0, 0, 0, 0, dushanbeTimeZone)
-	wantTo := time.Date(2026, time.November, 29, 0, 0, 0, 0, dushanbeTimeZone)
+	wantFrom := time.Date(2026, time.November, 1, 0, 0, 0, 0, DushanbeTimeZone)
+	wantTo := time.Date(2026, time.November, 29, 0, 0, 0, 0, DushanbeTimeZone)
 
 	if !store.dayCalled {
 		t.Fatal("the store was not called")
