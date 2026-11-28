@@ -31,6 +31,7 @@ type Repository interface {
 	PhotoExistsForMessage(ctx context.Context, tgID int64, tgMsgID int) (bool, error)
 	MarkRegistrationLinkSent(ctx context.Context, tgID int64) (bool, error)
 	PhotoReportByPeriod(ctx context.Context, startDate time.Time, endDate time.Time) ([]models.ReportRow, error)
+	MonthlyReportByPeriod(ctx context.Context, startDate time.Time, endDate time.Time) ([]models.ReportRow, error)
 }
 
 type FaizAppRepo struct {

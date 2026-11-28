@@ -268,3 +268,138 @@ func findFreeSRCodes(t *testing.T, ctx context.Context, pool *pgxpool.Pool, n in
 
 	return codes
 }
+
+func TestMonthlyReportByPeriodGroupsPhotosByDushanbeDay(t *testing.T) {
+	dbURL := os.Getenv("TEST_DATABASE_URL")
+	if dbURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Fatalf("create pool: %v", err)
+	}
+	defer pool.Close()
+
+	repo := NewFaizAppRepo(pool)
+
+	freeCodes := findFreeSRCodes(t, ctx, pool, 2)
+	assignedCode, vacantCode := freeCodes[0], freeCodes[1]
+
+	tgID := randomTestTgID()
+
+	var userID string
+	err = pool.QueryRow(
+		ctx,
+		`
+		INSERT INTO users (tg_id, full_name, status, role)
+		VALUES ($1, $2, 'approved', $3)
+		RETURNING id
+		`,
+		tgID,
+		"Monthly Report Test User",
+		models.RoleSalesRep,
+	).Scan(&userID)
+	if err != nil {
+		t.Fatalf("create test user: %v", err)
+	}
+
+	defer func() {
+		cleanup := context.Background()
+		_, _ = pool.Exec(cleanup, `DELETE FROM photos WHERE user_id = $1`, userID)
+		_, _ = pool.Exec(cleanup, `DELETE FROM sr_assignments WHERE user_id = $1`, userID)
+		_, _ = pool.Exec(cleanup, `DELETE FROM users WHERE id = $1`, userID)
+	}()
+
+	_, err = pool.Exec(
+		ctx,
+		`INSERT INTO sr_assignments (user_id, sr_code_id) SELECT $1, id FROM sr_codes WHERE code = $2`,
+		userID,
+		assignedCode,
+	)
+	if err != nil {
+		t.Fatalf("assign code: %v", err)
+	}
+
+	// A month far in the past keeps the window free of other photos.
+	dushanbe := time.FixedZone("Dushanbe", 5*60*60)
+	from := time.Date(2001, time.April, 1, 0, 0, 0, 0, dushanbe)
+	to := time.Date(2001, time.April, 4, 0, 0, 0, 0, dushanbe)
+
+	photoTimes := []time.Time{
+		// 1 April: two photos, one of them 23:30 in Dushanbe (18:30 UTC).
+		time.Date(2001, time.April, 1, 9, 0, 0, 0, dushanbe),
+		time.Date(2001, time.April, 1, 23, 30, 0, 0, dushanbe),
+		// 2 April 00:30 in Dushanbe is still 1 April in UTC; it must count for 2 April.
+		time.Date(2001, time.April, 2, 0, 30, 0, 0, dushanbe),
+		// 3 April: three photos.
+		time.Date(2001, time.April, 3, 10, 0, 0, 0, dushanbe),
+		time.Date(2001, time.April, 3, 11, 0, 0, 0, dushanbe),
+		time.Date(2001, time.April, 3, 12, 0, 0, 0, dushanbe),
+		// Outside the period: the day before and the day after.
+		time.Date(2001, time.March, 31, 23, 0, 0, 0, dushanbe),
+		time.Date(2001, time.April, 4, 0, 0, 0, 0, dushanbe),
+	}
+
+	for i, at := range photoTimes {
+		err := repo.CreatePhoto(ctx, &models.Photo{
+			UserID:            userID,
+			TelegramUserID:    tgID,
+			TelegramMessageID: 8001 + i,
+			Sha256Hash:        fmt.Sprintf("monthly-report-test-%d-%d", tgID, i),
+			ReceivedAt:        at.UTC(),
+		})
+		if err != nil {
+			t.Fatalf("create photo %d: %v", i, err)
+		}
+	}
+
+	rows, err := repo.MonthlyReportByPeriod(ctx, from, to)
+	if err != nil {
+		t.Fatalf("monthly report: %v", err)
+	}
+
+	var assigned, vacant []models.ReportRow
+	for _, row := range rows {
+		switch row.SRCode {
+		case assignedCode:
+			assigned = append(assigned, row)
+		case vacantCode:
+			vacant = append(vacant, row)
+		}
+	}
+
+	// One row per Dushanbe day with photos, in day order: 2, 1, 3.
+	wantPhotos := []int{2, 1, 3}
+	if len(assigned) != len(wantPhotos) {
+		t.Fatalf("assigned code has %d rows, want %d (one per day): %+v", len(assigned), len(wantPhotos), assigned)
+	}
+	for i, want := range wantPhotos {
+		row := assigned[i]
+		if row.PhotosNum != want {
+			t.Fatalf("day %d photos = %d, want %d", i+1, row.PhotosNum, want)
+		}
+		if row.FullName != "Monthly Report Test User" || row.Territory == "" || row.PhotoPerUnit <= 0 {
+			t.Fatalf("day %d row is incomplete: %+v", i+1, row)
+		}
+	}
+
+	if len(vacant) != 1 || vacant[0].PhotosNum != 0 || vacant[0].FullName != "" {
+		t.Fatalf("vacant code rows = %+v, want one row with no name and 0 photos", vacant)
+	}
+
+	var codeCount int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM sr_codes`).Scan(&codeCount); err != nil {
+		t.Fatalf("count sr codes: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, row := range rows {
+		seen[row.SRCode] = true
+	}
+	if len(seen) != codeCount {
+		t.Fatalf("report covers %d codes, want all %d", len(seen), codeCount)
+	}
+}

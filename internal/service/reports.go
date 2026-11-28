@@ -10,6 +10,7 @@ import (
 
 type ReportStore interface {
 	PhotoReportByPeriod(ctx context.Context, startDate time.Time, endDate time.Time) ([]models.ReportRow, error)
+	MonthlyReportByPeriod(ctx context.Context, startDate time.Time, endDate time.Time) ([]models.ReportRow, error)
 }
 
 type ReportService struct {
@@ -31,7 +32,13 @@ func dayBounds(moment time.Time) (time.Time, time.Time) {
 	to := from.AddDate(0, 0, 1)
 	return from, to
 }
-
+func monthToDateBounds(moment time.Time) (time.Time, time.Time) {
+	inDushanbe := moment.In(dushanbeTimeZone)
+	year, month, _ := inDushanbe.Date()
+	from := time.Date(year, month, 1, 0, 0, 0, 0, dushanbeTimeZone)
+	_, to := dayBounds(moment)
+	return from, to
+}
 func (s *ReportService) DailyReport(ctx context.Context, moment time.Time) (*models.DayReport, error) {
 	from, to := dayBounds(moment)
 
@@ -58,6 +65,34 @@ func (s *ReportService) DailyReport(ctx context.Context, moment time.Time) (*mod
 	return &dayReports, nil
 }
 
+func (s *ReportService) MonthToDateMerch(ctx context.Context, moment time.Time) ([]models.ReportRow, error) {
+	from, to := monthToDateBounds(moment)
+
+	reports, err := s.store.MonthlyReportByPeriod(ctx, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("monthly report by period: %w", err)
+	}
+
+	var result []models.ReportRow
+
+	for i := range reports {
+		merch, err := CalcMerch(reports[i].PhotosNum, reports[i].PhotoPerUnit)
+		if err != nil {
+			return nil, fmt.Errorf("calculate merch for code %s: %w", reports[i].SRCode, err)
+		}
+		reports[i].Merch = merch
+
+		last := len(result) - 1
+
+		if last >= 0 && result[last].SRCode == reports[i].SRCode {
+			result[last].Merch += reports[i].Merch
+			result[last].PhotosNum += reports[i].PhotosNum
+		} else {
+			result = append(result, reports[i])
+		}
+	}
+	return result, nil
+}
 func isLate(firstPhoto *time.Time, lateAfter int) bool {
 	if firstPhoto == nil {
 		return false

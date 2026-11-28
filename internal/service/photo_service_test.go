@@ -58,6 +58,15 @@ func (m *userServiceRepoMock) MarkRegistrationLinkSent(
 	return m.linkClaimed, m.linkClaimErr
 }
 
+// MonthlyReportByPeriod is not used by PhotoService; the report service has its own store.
+func (m *userServiceRepoMock) MonthlyReportByPeriod(
+	_ context.Context,
+	_ time.Time,
+	_ time.Time,
+) ([]models.ReportRow, error) {
+	return nil, nil
+}
+
 // PhotoReportByPeriod is not used by PhotoService; the report service has its own store.
 func (m *userServiceRepoMock) PhotoReportByPeriod(
 	_ context.Context,
